@@ -14,7 +14,7 @@ async def sim(page):
 async def hud_text(page): return await page.inner_text('section[aria-label="Your day"]')
 async def money(page): return (await sim(page))['money']
 async def pick_spot(page, label):
-    await page.click(f'g.obj[aria-label^="{label}"]')
+    await page.click(f'button[aria-label^="{label}"]')
 async def go_to_bed(page):
     d0 = (await sim(page))['day']
     await pick_spot(page, 'Bed'); await page.click('button.act:has-text("Go to bed for the night")')
@@ -48,7 +48,7 @@ async def main():
         await page.fill('#nick', 'Sam'); await page.click('button:has-text("Ontario")')
         await page.screenshot(path=f'{OUT}/2_create_character.png', full_page=True)
         await page.click('button:has-text("Start my life")'); await page.wait_for_url('**/play')
-        await page.wait_for_selector('svg[aria-label="Your home"]')
+        await page.wait_for_selector('canvas[aria-label="Your town"]')
         s = await sim(page)
         ok('new game starts at day 1 with $200', s['day'] == 1 and s['money'] == 200, (s['day'], s['money']))
         ok('avatar choices were saved', s['avatar']['hair'] == 4 and s['avatar']['style'] == 2 and s['avatar']['shirt'] == 2)
@@ -70,8 +70,8 @@ async def main():
         ok('buying a plant costs $12 and shows it is owned', await money(page) == 238 and 'You have this' in await page.inner_text('body'))
         ok('visiting the shop cost one time block', (await sim(page))['block'] == 3)
         await page.screenshot(path=f'{OUT}/4_town_shop.png', full_page=True)
-        await page.goto(BASE + '/play'); await page.wait_for_selector('svg[aria-label="Your home"]')
-        ok('the new plant appears in the room', '🪴' in await page.inner_html('svg[aria-label="Your home"]'))
+        await page.goto(BASE + '/play'); await page.wait_for_selector('canvas[aria-label="Your town"]')
+        ok('the new plant appears in the room', 'Pothos plant' in await page.inner_text('body'))
         h0 = (await sim(page))['needs']['hunger']
         await pick_spot(page, 'Kitchen'); await do(page, 'Cook a meal')
         s = await sim(page)
@@ -149,7 +149,7 @@ async def main():
         ok('says game money has no real value', 'no real value' in allText or "can't be bought" in allText)
 
         # ---- persistence, quiet mode, delete
-        await page.goto(BASE + '/play'); await page.reload(); await page.wait_for_selector('svg[aria-label="Your home"]')
+        await page.goto(BASE + '/play'); await page.reload(); await page.wait_for_selector('canvas[aria-label="Your town"]')
         ok('state persists across reloads', (await sim(page))['day'] >= 2)
         await page.goto(BASE + '/settings'); await page.check('input[role=switch] >> nth=0')
         ok('quiet mode sets the quiet class', await page.evaluate("document.documentElement.classList.contains('quiet')"))

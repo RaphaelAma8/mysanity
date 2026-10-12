@@ -1,7 +1,8 @@
 import {
-  ADOPT_PRICE, FRIENDS, FRIEND_REPEAT, GROCERY_PACK, HOME_ACTIONS, ITEMS, JOBS, PET_FOOD_PACK, SHOP_ITEMS, START_MONEY, TRAVEL_PRICE,
-  WEEKLY_BILLS, actionById, itemById, type Effects,
+  ADOPT_PRICE, FRIENDS, FRIEND_REPEAT, GROCERY_PACK, HOME_ACTIONS, HOMES, ITEMS, JOBS, PET_FOOD_PACK, SHOP_ITEMS, START_MONEY, TRAVEL_PRICE,
+  WEEKLY_BILLS, actionById, businessById, carById, drinkById, homeById, itemById, type Effects,
 } from "./data";
+import { moderateAd } from "@/lib/ads/moderate";
 import {
   BLOCKS_PER_DAY, MAX_SHIFTS_PER_DAY, NEED_KEYS, NEED_META, type Avatar, type Moment, type Needs, type Result, type Sim,
 } from "./types";
@@ -13,7 +14,20 @@ export const newSim = (avatar: Avatar, now: Date): Sim => ({
   needs: { energy: 70, hunger: 70, hygiene: 70, fun: 60, social: 50, calm: 60 },
   groceries: 3, petFood: 0, inventory: [], pet: null, friends: {}, shiftsToday: 0, helpedToday: false,
   visitedToday: [], moments: [], lastBillDay: 0, avatar, travelled: [], petFedToday: false, supportedByCommunity: 0,
+  littleWins: [], cars: [], carId: null, visitor: null, homeId: "cottage", homes: ["cottage"], placements: [], businesses: [], businessBoard: null,
 });
+
+const WIN_OF: Record<string, string> = {
+  cook: "nourish", takeout: "nourish",
+  call_friend: "connect", pet_time: "connect",
+  breathe: "settle", ground: "settle", journal: "settle", nap: "settle", shower: "settle", tidy: "settle",
+};
+
+/** A small win for today. Doing it twice, or not at all, never costs anything. */
+export function noteWin(sim: Sim, id: string): Sim {
+  if (!id || sim.littleWins.includes(id)) return sim;
+  return { ...sim, littleWins: [...sim.littleWins, id].slice(0, 8) };
+}
 
 /* ---------- mood: gentle words, never a grade ---------- */
 export type MoodTier = "good" | "okay" | "low" | "rough";
@@ -135,6 +149,7 @@ export function perform(sim: Sim, id: string, region: string): Result {
   s = { ...s, needs, block: s.block + a.blocks };
   s = { ...s, needs: decay(s, a.blocks) };
   if (mom) s = addMoment(s, mom);
+  if (WIN_OF[a.id]) s = noteWin(s, WIN_OF[a.id]);
   void region;
   return { sim: s, ok: true, message: note, gains, moment: mom };
 }
@@ -150,17 +165,112 @@ export function sleep(sim: Sim): Result {
   s.helpedToday = false;
   s.visitedToday = [];
   s.petFedToday = false;
+  s.littleWins = [];
+  s.visitor = null;
   let msg = "You slept. A new day is here.";
   if (s.day % 7 === 0 && s.lastBillDay < s.day) {
     s.lastBillDay = s.day;
-    if (s.money >= WEEKLY_BILLS) { s.money -= WEEKLY_BILLS; msg += ` Weekly bills: −$${WEEKLY_BILLS}.`; }
-    else {
+    const rent = weeklyRent(s);
+    if (s.money >= WEEKLY_BILLS) {
+      s.money -= WEEKLY_BILLS;
+      msg += ` Weekly bills: −$${WEEKLY_BILLS}.`;
+      if (rent > 0) {
+        if (s.money >= rent) {
+          s.money -= rent;
+          msg += ` A reminder for the shop: weekly rent −$${rent}. The business stays yours either way.`;
+        } else {
+          s.supportedByCommunity += 1;
+          msg += " A reminder: shop rent was due, and the community covered it. That is not a failure. The business stays yours.";
+        }
+      }
+    } else {
       // Safety net: running out of money never causes a loss. The community covers it, and the game says so kindly.
       s.supportedByCommunity += 1;
       msg += " Money was tight this week, so your community covered the bills. Asking for help is part of life, not a failure.";
+      if (rent > 0) msg += " Shop rent was covered too. Nothing you own is taken.";
     }
   }
   return { sim: s, ok: true, message: msg };
+}
+
+function weeklyRent(sim: Sim) {
+  return sim.businesses.reduce((sum, id) => sum + (businessById(id)?.rent ?? 0), 0);
+}
+
+export function buyCar(sim: Sim, carId: string): Result {
+  const car = carById(carId);
+  if (!car) return fail(sim, "That car isn't on the lot.");
+  if (sim.cars.includes(carId)) return fail(sim, `${car.name} is already yours, and it stays yours.`);
+  if (sim.money < car.price) return fail(sim, `${car.name} costs $${car.price}. No rush. Walking still gets you everywhere.`);
+  return {
+    sim: { ...sim, cars: [...sim.cars, carId], carId, money: sim.money - car.price },
+    ok: true,
+    message: `${car.name} is yours. Drive it when you feel like it, or leave it parked.`,
+    gains: [`−$${car.price}`],
+  };
+}
+
+export function buyHome(sim: Sim, homeId: string): Result {
+  const home = homeById(homeId);
+  if (!home || home.price <= 0) return fail(sim, "That home isn't for sale.");
+  if (sim.homes.includes(homeId)) return fail(sim, `${home.name} is already yours.`);
+  if (sim.money < home.price) return fail(sim, `${home.name} costs $${home.price}. It will still be here when you're ready.`);
+  return {
+    sim: { ...sim, money: sim.money - home.price, homes: [...sim.homes, homeId], homeId },
+    ok: true,
+    message: `${home.name} is yours. Anything you place inside stays put, and it is never taken away.`,
+    gains: [`−$${home.price}`],
+  };
+}
+
+export function moveHome(sim: Sim, homeId: string): Result {
+  if (!HOMES.some((home) => home.id === homeId)) return fail(sim, "That isn't a home here.");
+  if (!sim.homes.includes(homeId)) return fail(sim, "That home isn't yours yet.");
+  if (sim.homeId === homeId) return { sim, ok: true, message: "" };
+  const home = homeById(homeId);
+  return { sim: { ...sim, homeId }, ok: true, message: `You're at ${home?.name ?? "home"}.` };
+}
+
+/** Put an owned item down in the current home. Unplacing it later does not remove it from the inventory. */
+export function placeItem(sim: Sim, itemId: string, x: number, y: number): Result {
+  if (!itemById(itemId) || !sim.inventory.includes(itemId)) return fail(sim, "You don't have that yet.");
+  if (!sim.homes.includes(sim.homeId)) return fail(sim, "This home is yours to arrange.");
+  const px = Math.max(1, Math.min(14, Math.round(x)));
+  const py = Math.max(1, Math.min(11, Math.round(y)));
+  const kept = sim.placements.filter((spot) => spot.itemId !== itemId && !(spot.homeId === sim.homeId && spot.x === px && spot.y === py));
+  return {
+    sim: { ...sim, placements: [...kept, { homeId: sim.homeId, itemId, x: px, y: py }] },
+    ok: true,
+    message: "Placed. It will still be here next time you look inside.",
+  };
+}
+
+export function buyBusiness(sim: Sim, businessId: string): Result {
+  const shop = businessById(businessId);
+  if (!shop) return fail(sim, "That shop isn't available.");
+  const atCafe = shop.placeId === "cafe";
+  if (!atCafe && !sim.visitedToday.includes(shop.placeId)) return fail(sim, "Step inside the shop first.");
+  if (sim.businesses.includes(businessId)) return fail(sim, `${shop.name} is already yours.`);
+  const price = shop.rent * 4;
+  if (sim.money < price) return fail(sim, `${shop.name} costs $${price}. Saving up is fine. Nothing happens if you wait.`);
+  return {
+    sim: { ...sim, money: sim.money - price, businesses: [...sim.businesses, businessId] },
+    ok: true,
+    message: `${shop.name} is yours. Weekly rent is a reminder, and the community covers it if money is tight. The shop is never taken.`,
+    gains: [`−$${price}`],
+  };
+}
+
+/** A short board for a shop you own. Moderated like every other board. Never reads a journal or a mood. */
+export function setBusinessBoard(sim: Sim, businessName: string, line: string): Result {
+  if (sim.businesses.length === 0) return fail(sim, "Own a shop first, if you want a board.");
+  const verdict = moderateAd({ businessName, line, detail: "", contact: "" });
+  if (!verdict.ok) return fail(sim, verdict.reason);
+  return {
+    sim: { ...sim, businessBoard: { name: verdict.ad.businessName, line: verdict.ad.line } },
+    ok: true,
+    message: "Saved for review. It shows for everyone only after it is approved.",
+  };
 }
 
 /* ---------- town ---------- */
@@ -206,6 +316,61 @@ export function work(sim: Sim, jobId: string): Result {
   return { sim: s, ok: true, message: `${job.name} done. Nice work.`, gains: [`+$${job.pay}`, ...gains] };
 }
 
+/** A mocktail or snack at the club. Game money only, and the menu never includes alcohol. */
+export function orderDrink(sim: Sim, drinkId: string): Result {
+  const drink = drinkById(drinkId);
+  if (!drink) return fail(sim, "That isn't on the menu.");
+  if (!sim.visitedToday.includes("club")) return fail(sim, "Step inside the club first.");
+  if (sim.money < drink.price) return fail(sim, `${drink.name} is $${drink.price}. Saving up is fine.`);
+  const { needs, gains } = applyEffects(sim.needs, drink.effects);
+  let s: Sim = { ...sim, money: sim.money - drink.price, needs };
+  if ((drink.effects.hunger ?? 0) > 0) s = noteWin(s, "nourish");
+  return { sim: s, ok: true, message: `${drink.name} is yours. The price stays the same, and nothing here is alcoholic.`, gains: [`−$${drink.price}`, ...gains] };
+}
+
+/** A free spot in the club. Nothing to perform, and leaving early changes nothing. */
+export function clubSpot(sim: Sim, spot: "vip" | "dj"): Result {
+  if (!sim.visitedToday.includes("club")) return fail(sim, "Step inside the club first.");
+  if (blocksLeft(sim) < 1) return fail(sim, "The day is winding down. Time for bed.");
+  const plan = spot === "vip"
+    ? { effects: { social: 10, calm: 8, fun: 4 }, message: "You took the quiet booth. Nobody is asking you to perform.", note: "Sat in the quiet booth." }
+    : { effects: { fun: 12, social: 6 }, message: "You stood by the booth and listened. The music is just playing.", note: "Listened by the DJ booth." };
+  const { needs, gains } = applyEffects(sim.needs, plan.effects);
+  let s: Sim = { ...sim, needs, block: sim.block + 1 };
+  s = { ...s, needs: decay(s, 1) };
+  const mom = moment(s, plan.note, "🎶");
+  return { sim: noteWin(addMoment(s, mom), "connect"), ok: true, message: plan.message, gains, moment: mom };
+}
+
+/** Invite a friend into the home. Other players stay outside. */
+export function entertain(sim: Sim): Result {
+  if (sim.visitor) return { sim, ok: true, message: `${sim.visitor} is already visiting. Your home stays private.` };
+  const friend = FRIENDS.find((person) => (sim.friends[person.id] ?? 0) >= 1);
+  const name = friend?.name ?? "Maya";
+  const { needs, gains } = applyEffects(sim.needs, { social: 12, calm: 6, fun: 4 });
+  const s = noteWin({ ...sim, visitor: name, needs }, "connect");
+  const mom = moment(s, `${name} is visiting.`, "💛");
+  return { sim: addMoment(s, mom), ok: true, message: `${name} is visiting. Other players stay out on the street.`, gains, moment: mom };
+}
+
+/** A free outing at the club, gym or farm. Same for everyone; nothing is tracked from a journal or a mood. */
+export function placeOuting(sim: Sim, placeId: "club" | "gym" | "farm"): Result {
+  if (!sim.visitedToday.includes(placeId)) return fail(sim, "Step inside first.");
+  if (blocksLeft(sim) < 1) return fail(sim, "The day is winding down. Time for bed.");
+  const plan = {
+    club: { effects: { social: 18, fun: 8 }, message: "You sat in at the club. Company, and nothing you had to perform.", win: "connect" as const, icon: "🎶", note: "Sat in at the lakeside club." },
+    gym: { effects: { fun: 12, calm: 8, energy: -6 }, message: "A gentle bit of movement. Stopping whenever you like is part of it.", win: null, icon: "🤸", note: "Moved a little at the gym." },
+    farm: { effects: { calm: 14, fun: 8 }, message: "You walked the rows. The farm is quiet, and nobody timed you.", win: "outside" as const, icon: "🌾", note: "Walked the rows at the farm." },
+  }[placeId];
+  const { needs, gains } = applyEffects(sim.needs, plan.effects);
+  let s: Sim = { ...sim, needs, block: sim.block + 1 };
+  s = { ...s, needs: decay(s, 1) };
+  const mom = moment(s, plan.note, plan.icon);
+  s = addMoment(s, mom);
+  if (plan.win) s = noteWin(s, plan.win);
+  return { sim: s, ok: true, message: plan.message, gains, moment: mom };
+}
+
 export function parkWalk(sim: Sim, region: string): Result {
   if (!sim.visitedToday.includes("park")) return fail(sim, "You need to be at the park first.");
   if (blocksLeft(sim) < 1) return fail(sim, "The day is winding down. Time for bed.");
@@ -214,7 +379,7 @@ export function parkWalk(sim: Sim, region: string): Result {
   let s: Sim = { ...sim, needs, block: sim.block + 1 };
   s = { ...s, needs: decay(s, 1) };
   const mom = moment(s, `Walked in the park on ${weatherPhrase[w]}.`, "🌳");
-  return { sim: addMoment(s, mom), ok: true, message: `A walk on ${weatherPhrase[w]}. Fresh air helps.`, gains, moment: mom };
+  return { sim: noteWin(addMoment(s, mom), "outside"), ok: true, message: `A walk on ${weatherPhrase[w]}. Fresh air helps.`, gains, moment: mom };
 }
 
 export function centreMeal(sim: Sim): Result {
@@ -225,7 +390,7 @@ export function centreMeal(sim: Sim): Result {
   let s: Sim = { ...sim, needs, block: sim.block + 1, helpedToday: true };
   s = { ...s, needs: decay(s, 1) };
   const mom = moment(s, "Went to the community centre and let people help. That takes courage.", "🤝");
-  return { sim: addMoment(s, mom), ok: true, message: "A warm, free meal, and no questions. Everyone is glad you came.", gains, moment: mom };
+  return { sim: noteWin(addMoment(s, mom), "nourish"), ok: true, message: "A warm, free meal, and no questions. Everyone is glad you came.", gains, moment: mom };
 }
 
 export function centreChat(sim: Sim): Result {
@@ -244,6 +409,7 @@ export function centreChat(sim: Sim): Result {
   s = { ...s, needs, block: s.block + 1 };
   s = { ...s, needs: decay(s, 1) };
   if (mom) s = addMoment(s, mom);
+  s = noteWin(s, "connect");
   return { sim: s, ok: true, message: msg, gains, moment: mom };
 }
 

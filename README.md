@@ -11,8 +11,13 @@ evaluated, and nothing in it should be described as treating or improving any co
 
 1. **Help is always one tap away.** A "Need help now?" button is on every screen, and a plain `/help` page works
    even with JavaScript turned off.
-2. **Private by default.** No accounts, no server, no analytics, no ads. The whole game, the journal and the
-   check-ins live in the person's own browser storage. Nothing ever leaves the device.
+2. **Private by default.** No analytics and no tracking. The journal and mood check-ins live only in the person's
+   browser and are never uploaded. They are never used to choose boards or anything else on screen.
+   Local business boards are optional: a business submits wording, the owner approves it, and every person
+   sees the same approved boards on the homepage and along the streets. Boards never appear in the calm
+   corner or on help screens. The game is fully playable with no account and no database. If the host
+   has connected Postgres, a person can optionally save their character and appear in public places, including
+   the same shop, club, farm, gym or workplace as other people. Home stays private. They can leave and delete that key.
 3. **Game money only.** Canadian dollars in the game are virtual. They have no real value, can't be bought, and
    can't be turned into real money. No real-money purchases of any kind.
 4. **Nothing is ever lost, and there is no debt.** Money can't go below $0. Needs can reach 0 and nothing bad
@@ -25,15 +30,24 @@ evaluated, and nothing in it should be described as treating or improving any co
    "only today" language. (This is checked by an automated test.)
 8. **Mood reports are never rewarded.** The check-in is deliberately outside the game, so there's no reason to
    answer anything but honestly.
-9. **No open chat, adults only.** There is no messaging between people. A self-declared 18+ confirmation is not
-   age verification.
+9. **No open chat, adults only.** People can wave and send a short list of kind notes. There is no free-text
+   chat. Public names are checked, and crisis language shows 9-8-8 instead of being published. A self-declared
+   18+ confirmation is not age verification.
 10. **Kind, non-clinical language.** No promises, no diagnosis, no "treat/cure/heal".
 
-## What's in version 1
+## What's in the game
 
 - Character creator (skin, hair, style, shirt) and all 13 provinces and territories as the home region
-- **Home:** a cozy room you tap around in. Bed, desk and notebook, bathroom, calm corner, kitchen, couch and TV, door.
-  Your character walks to things. The window shows the time of day, the real season and the weather.
+- **Cedar Bay:** a canvas town you walk, on your phone or a computer. Tap the ground, use the pad, or the arrow
+  keys. Step into your cottage, the shops, The Kettle, the library, the community centre, the shelter,
+  the lakeside club, the credit union, the farm and the gym. Other people who have joined the town show up
+  as themselves in whichever of those public rooms they are standing in. Home stays empty of strangers.
+  The same places are also listed under Town, for anyone who would rather tap a list.
+- **Business boards:** the homepage shows a strip of boards, and the same approved boards stand along the
+  roads. Submissions wait in `/admin/boards` until the owner approves them. Open boards stay up when none
+  are approved yet.
+- **Home:** bed, desk and notebook, bathroom, calm corner, kitchen, couch and the door back outside.
+  The light, the trees and the lake follow the time of day, the real season and the weather.
 - **Needs:** energy, fed, fresh, fun, connected, calm. Mood is shown in gentle words ("Doing well", "Okay",
   "A bit low", "Having a rough time"). A rough stretch shows a kind note and a support link, never a penalty.
 - **Time:** five blocks a day, then bed. Sleeping starts a new day.
@@ -48,6 +62,9 @@ evaluated, and nothing in it should be described as treating or improving any co
 - Gentle suggestions ("Need a nudge?") that are always optional
 - On-device crisis-language detection in the journal that gently offers 9-8-8 (it never blocks saving)
 - Quick exit, quiet mode (no animation), larger text, download my data, delete all my data
+- **People (optional):** if Postgres is connected, join the town with a device key, see others in public
+  places, add a friend by code, and send a preset kind note. No open chat. Your home is never shared.
+- Installable on a phone (Add to Home Screen). It still works as a normal website.
 - French is **not** built yet (see below)
 
 ## Run it
@@ -57,12 +74,53 @@ Node 22+.
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # 73 logic and game-rule tests
+npm test
 npm run lint && npm run typecheck && npm run build
 ```
 
-A static-friendly Next.js app with no database and no required environment variables. It needs **Vercel only**
-(no Railway, no database), because the game lives in the person's browser.
+The app builds and plays with **no environment variables**. `DATABASE_URL` is optional.
+
+## Linking Railway Postgres and Vercel
+
+The owner already has a Railway Postgres database. The app reads `DATABASE_URL` and does nothing with it
+when the variable is missing, so a deploy without it is still a complete single-player game.
+
+1. In Railway, open the Postgres service → **Variables** → copy **`DATABASE_PUBLIC_URL`**.
+   Use the public URL. The `*.railway.internal` URL only works inside Railway's private network, and
+   Vercel cannot reach it.
+2. In Vercel, open the project → **Settings** → **Environment Variables**. Add these, then redeploy
+   (merging to `main` redeploys if the GitHub project is already connected):
+   - `DATABASE_URL` — paste Railway's public URL. Enable it for Production (and Preview, if those
+     deployments should share the town).
+   - `ADMIN_TOKEN` — a long random string you invent (at least 16 characters). It is the only key that
+     can approve business boards at `/admin/boards`. Do not commit it and do not put it in the client.
+3. Apply the tables **before** you expect accounts to work. From a machine that can reach the database
+   (your laptop is enough):
+
+   ```bash
+   DATABASE_URL="postgresql://…" npm run db:migrate
+   ```
+
+   That runs the SQL in `drizzle/` (`0000_kind_town.sql`, `0001_street_boards.sql`, and
+   `0002_promo_kind.sql`). If `DATABASE_URL` is unset, the command prints a note and exits
+   successfully, so a build never depends on it. Vercel does not run migrations for you.
+4. Deploy (or redeploy) on Vercel with the Next.js defaults. Open the site, create a character, open
+   **People**, and join the town. If People says the town is just yours, `DATABASE_URL` is missing or
+   the migration has not been applied.
+5. Do not put the database URL in the git repo. `.env.example` lists the variable name only.
+
+What the database stores: a display name, a hashed device key, a friend code, the character save,
+where someone is standing in a **public** place for about 20 seconds, and business-board submissions.
+It does not store the journal or mood check-ins. Those keys are rejected if a client tries to send them,
+including on a board submission. Boards are not chosen from either.
+
+Set both `DATABASE_URL` and `ADMIN_TOKEN` in Vercel before you expect the shared town or the review
+queue to work. Apply migrations after pulling, including `drizzle/0001_street_boards.sql` and
+`drizzle/0002_promo_kind.sql`, with `npm run db:migrate`. Vercel does not run that step.
+`0002` adds a `kind` column so a song or a business can wait in the same `/admin/boards` queue as a
+street board. Approved songs and businesses show on the street boards, a banner, and the club
+speakers. Nothing is shown to everyone while it is still waiting. There is no card payment in this
+build; the club form marks where a future payment provider would go.
 
 ## Deploy to Vercel
 
@@ -71,7 +129,8 @@ A static-friendly Next.js app with no database and no required environment varia
 3. Open the URL Vercel gives you and play through it on a phone.
 4. Keep it private while you test. The site is hidden from search engines by default. Vercel also has
    deployment-protection options for limiting who can open a deployment (check what your plan includes).
-5. **Do not turn on analytics or add tracking.** Privacy is a core promise of the app.
+5. **Do not turn on analytics or add tracking.** Privacy is a core promise of the app. Business boards
+   are the only promotional surface, and they are reviewed by hand.
 6. When you are truly ready to launch (clinical review done, French added), set
    `NEXT_PUBLIC_ALLOW_INDEXING=1` in Vercel's environment variables and redeploy.
 
@@ -111,20 +170,21 @@ listings and news reports, not by calling each service, so please confirm them y
   needs-and-chores games stressful rather than soothing.
 - **Cultural review** of the Hope for Wellness wording and the territory postcards by Indigenous reviewers.
 - **French.** A Canadian service needs French (and Quebec has specific language requirements).
-- **Privacy policy and terms**, even with no data collection.
+- **Privacy policy and terms**, including the optional character save. The journal and check-ins are not part of it.
 - **A safety plan for the team** for when someone contacts you in distress (always point to 9-8-8).
 - **Evaluation.** Don't claim it improves wellbeing unless it has been properly evaluated.
 
 ## Testing
 
-- 73 unit tests: game rules (needs, time, work limits, shopping, the safety net, pets, friends, travel, weather,
-  moments), the "nothing is lost" guarantees, a 28-day routine simulation, crisis language, check-in support logic,
-  corrupt or hostile saved data, upgrading an older save, and content checks (no pressure language, no clinical
-  promises, dialable crisis numbers).
-- 53 browser checks (`e2e/nh_e2e.py`): create a character, play a full day, shop and see the item appear in the
-  room, the work limit, the free community meal, friends, the scrapbook, breathing feeding the game, help on every
+- Unit tests: game rules (needs, time, work limits, shopping, the safety net, pets, friends, travel, weather,
+  moments, small wins), the "nothing is lost" guarantees, a 28-day routine simulation, crisis language, check-in
+  support logic, corrupt or hostile saved data, upgrading an older save, content checks (no pressure language, no
+  clinical promises, dialable crisis numbers), the walkable town, and the rule that a cloud save cannot carry a
+  journal or a check-in.
+- Browser checks (`e2e/nh_e2e.py`): create a character, play a full day, shop and see the item appear at home,
+  the work limit, the free community meal, friends, the scrapbook, breathing feeding the game, help on every
   screen and with JavaScript off, the broke-and-covered safety net, no pressure language, persistence, deletion,
-  and **proof that nothing typed or played is ever sent over the network**.
+  and proof that the journal is not uploaded. The character is sent only if the person joins the shared town.
 - Accessibility scan (axe-core, `e2e/nh_axe.py`) on every screen, the open menus and the help sheet: **0
   violations**. Automated scans catch only some problems; real screen-reader testing is still needed.
 
@@ -138,8 +198,16 @@ Never ship a build made with `NEXT_PUBLIC_E2E_FAST=1`.
 
 ## Known limits
 
-- One character, one home, one town. The art is simple and original; it is not Sims-quality.
-- Everything is on one device. Clearing browser data or switching device loses the game (export is available).
+- People on the street are CC0 Quaternius superhero characters (Idle, Walk, and Dance clips),
+  credited in `public/models/people/LICENSE.txt`. Storefronts and board art are painted in the browser.
+  Skin, hair, and clothing colours come from the character creator. A hairstyle picks the body it was
+  rigged to, because the save has no separate gender field.
+- You can own more than one home and more than one car. Furniture stays where you place it. Unpaid
+  bills and shop rent are covered by the community, and nothing you own is taken. The club menu is
+  mocktails and snacks. Other players are visible in public rooms, never inside your home.
+- The journal never leaves the device. A character save can be copied to Postgres only after the person joins
+  the town. Clearing browser data still removes the local game; export remains available, and Load character
+  can bring a cloud copy back.
 - Anyone who can unlock the device can read the journal; the app says so, and has Quick exit and delete.
 - Crisis-language detection is a simple on-device word list. It misses some phrasing and sometimes flags things
   that aren't a crisis. It is only a gentle offer.
@@ -148,5 +216,6 @@ Never ship a build made with `NEXT_PUBLIC_E2E_FAST=1`.
 ## Ideas for later (carefully)
 
 More places and seasonal Canadian events (first snow, Thanksgiving, Canada Day), more homes, more friends and
-stories, small hobby mini-games. Social features only after clinical and safety review, and starting with
-moderated, template-based notes, never open chat. Never combine accounts with advertising or real-money purchases.
+stories, small hobby mini-games. Keep social features on preset notes. Do not add open chat without moderation
+and another clinical review. Business boards stay hand-reviewed and are never tied to a journal, a mood, or a
+real-money purchase. A payment provider is intentionally not wired up.

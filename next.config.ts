@@ -10,6 +10,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  serverExternalPackages: ["postgres"],
   // Always define the test flag so normal builds compile the test-only code away completely.
   env: { NEXT_PUBLIC_E2E_FAST: process.env.NEXT_PUBLIC_E2E_FAST === "1" ? "1" : "0" },
   // Tailwind v4 is compiled by this loader in the scaffold. Leave it in place.

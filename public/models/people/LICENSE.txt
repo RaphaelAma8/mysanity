@@ -1,0 +1,9 @@
+Quaternius Universal Base Characters (standard) and Universal Animation Library (standard)
+are CC0 1.0 Universal, public domain.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://quaternius.com
+
+Models and animations by Quaternius (@Quaternius).
+This folder keeps the superhero female and male bodies, five hairstyles, and the
+Idle_Loop, Walk_Loop, and Dance_Loop clips. Normal maps and the other animation clips
+are omitted to keep the web build smaller. Skin, hair, and clothing colors are applied by the game.
