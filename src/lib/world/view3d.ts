@@ -741,15 +741,20 @@ function billboardMesh(map: WorldMap, sign: Sign, index: number) {
   const group = new THREE.Group();
   const face = roadFacing(map, sign.x, sign.y);
   const yaw = face + (index % 2 === 0 ? 0.7 : -0.7);
-  const material = new THREE.MeshStandardMaterial({
-    map: canvasTexture(paintBillboard(sign.name, sign.line, sign.accent, index % 6)),
-    roughness: 0.5,
-  });
+  const painted = canvasTexture(paintBillboard(sign.name, sign.line, sign.accent, index % 6));
+  const material = new THREE.MeshStandardMaterial({ map: painted, roughness: 0.5 });
   const board = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.9), material);
   board.position.y = 1.9;
   board.rotation.y = yaw;
-  // A second front face so the copy reads correctly from the other side.
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.9), material);
+  // The far side is turned around, which flips the letters, so its texture is flipped back.
+  const flipped = painted.clone();
+  flipped.wrapS = THREE.RepeatWrapping;
+  flipped.repeat.x = -1;
+  flipped.offset.x = 1;
+  const back = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 1.9),
+    new THREE.MeshStandardMaterial({ map: flipped, roughness: 0.5 }),
+  );
   back.position.y = 1.9;
   back.rotation.y = yaw + Math.PI;
   const post = new THREE.Mesh(
