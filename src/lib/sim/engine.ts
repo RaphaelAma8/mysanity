@@ -13,7 +13,20 @@ export const newSim = (avatar: Avatar, now: Date): Sim => ({
   needs: { energy: 70, hunger: 70, hygiene: 70, fun: 60, social: 50, calm: 60 },
   groceries: 3, petFood: 0, inventory: [], pet: null, friends: {}, shiftsToday: 0, helpedToday: false,
   visitedToday: [], moments: [], lastBillDay: 0, avatar, travelled: [], petFedToday: false, supportedByCommunity: 0,
+  littleWins: [],
 });
+
+const WIN_OF: Record<string, string> = {
+  cook: "nourish", takeout: "nourish",
+  call_friend: "connect", pet_time: "connect",
+  breathe: "settle", ground: "settle", journal: "settle", nap: "settle", shower: "settle", tidy: "settle",
+};
+
+/** A small win for today. Doing it twice, or not at all, never costs anything. */
+export function noteWin(sim: Sim, id: string): Sim {
+  if (!id || sim.littleWins.includes(id)) return sim;
+  return { ...sim, littleWins: [...sim.littleWins, id].slice(0, 8) };
+}
 
 /* ---------- mood: gentle words, never a grade ---------- */
 export type MoodTier = "good" | "okay" | "low" | "rough";
@@ -135,6 +148,7 @@ export function perform(sim: Sim, id: string, region: string): Result {
   s = { ...s, needs, block: s.block + a.blocks };
   s = { ...s, needs: decay(s, a.blocks) };
   if (mom) s = addMoment(s, mom);
+  if (WIN_OF[a.id]) s = noteWin(s, WIN_OF[a.id]);
   void region;
   return { sim: s, ok: true, message: note, gains, moment: mom };
 }
@@ -150,6 +164,7 @@ export function sleep(sim: Sim): Result {
   s.helpedToday = false;
   s.visitedToday = [];
   s.petFedToday = false;
+  s.littleWins = [];
   let msg = "You slept. A new day is here.";
   if (s.day % 7 === 0 && s.lastBillDay < s.day) {
     s.lastBillDay = s.day;
@@ -206,6 +221,24 @@ export function work(sim: Sim, jobId: string): Result {
   return { sim: s, ok: true, message: `${job.name} done. Nice work.`, gains: [`+$${job.pay}`, ...gains] };
 }
 
+/** A free outing at the club, gym or farm. Same for everyone; nothing is tracked from a journal or a mood. */
+export function placeOuting(sim: Sim, placeId: "club" | "gym" | "farm"): Result {
+  if (!sim.visitedToday.includes(placeId)) return fail(sim, "Step inside first.");
+  if (blocksLeft(sim) < 1) return fail(sim, "The day is winding down. Time for bed.");
+  const plan = {
+    club: { effects: { social: 18, fun: 8 }, message: "You sat in at the club. Company, and nothing you had to perform.", win: "connect" as const, icon: "🎶", note: "Sat in at the lakeside club." },
+    gym: { effects: { fun: 12, calm: 8, energy: -6 }, message: "A gentle bit of movement. Stopping whenever you like is part of it.", win: null, icon: "🤸", note: "Moved a little at the gym." },
+    farm: { effects: { calm: 14, fun: 8 }, message: "You walked the rows. The farm is quiet, and nobody timed you.", win: "outside" as const, icon: "🌾", note: "Walked the rows at the farm." },
+  }[placeId];
+  const { needs, gains } = applyEffects(sim.needs, plan.effects);
+  let s: Sim = { ...sim, needs, block: sim.block + 1 };
+  s = { ...s, needs: decay(s, 1) };
+  const mom = moment(s, plan.note, plan.icon);
+  s = addMoment(s, mom);
+  if (plan.win) s = noteWin(s, plan.win);
+  return { sim: s, ok: true, message: plan.message, gains, moment: mom };
+}
+
 export function parkWalk(sim: Sim, region: string): Result {
   if (!sim.visitedToday.includes("park")) return fail(sim, "You need to be at the park first.");
   if (blocksLeft(sim) < 1) return fail(sim, "The day is winding down. Time for bed.");
@@ -214,7 +247,7 @@ export function parkWalk(sim: Sim, region: string): Result {
   let s: Sim = { ...sim, needs, block: sim.block + 1 };
   s = { ...s, needs: decay(s, 1) };
   const mom = moment(s, `Walked in the park on ${weatherPhrase[w]}.`, "🌳");
-  return { sim: addMoment(s, mom), ok: true, message: `A walk on ${weatherPhrase[w]}. Fresh air helps.`, gains, moment: mom };
+  return { sim: noteWin(addMoment(s, mom), "outside"), ok: true, message: `A walk on ${weatherPhrase[w]}. Fresh air helps.`, gains, moment: mom };
 }
 
 export function centreMeal(sim: Sim): Result {
@@ -225,7 +258,7 @@ export function centreMeal(sim: Sim): Result {
   let s: Sim = { ...sim, needs, block: sim.block + 1, helpedToday: true };
   s = { ...s, needs: decay(s, 1) };
   const mom = moment(s, "Went to the community centre and let people help. That takes courage.", "🤝");
-  return { sim: addMoment(s, mom), ok: true, message: "A warm, free meal, and no questions. Everyone is glad you came.", gains, moment: mom };
+  return { sim: noteWin(addMoment(s, mom), "nourish"), ok: true, message: "A warm, free meal, and no questions. Everyone is glad you came.", gains, moment: mom };
 }
 
 export function centreChat(sim: Sim): Result {
@@ -244,6 +277,7 @@ export function centreChat(sim: Sim): Result {
   s = { ...s, needs, block: s.block + 1 };
   s = { ...s, needs: decay(s, 1) };
   if (mom) s = addMoment(s, mom);
+  s = noteWin(s, "connect");
   return { sim: s, ok: true, message: msg, gains, moment: mom };
 }
 

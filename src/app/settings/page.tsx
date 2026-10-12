@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Loading, TopNav } from "@/components/Parts";
 import { useHaven, useRequireProfile } from "@/components/HavenProvider";
 import { RESOURCES_VERIFIED } from "@/data/resources";
+import { cloudFetch, loadCloud } from "@/lib/cloud/session";
 import { exportJson } from "@/lib/state";
 import { update } from "@/lib/store";
 
@@ -40,16 +41,26 @@ export default function Settings() {
       </div>
 
       <h2 className="mt-8 font-display text-xl font-semibold">Your data</h2>
-      <p className="mt-1 text-muted">Everything you add is stored only on this device, in this browser. There are no accounts and nothing is sent to a server.</p>
+      <p className="mt-1 text-muted">Your journal and mood check-ins stay on this device. They are never uploaded, and they are never used to choose what you see. Street boards are local businesses the owner has approved. They look the same for everyone, and they do not appear in the calm corner or on help screens. There are no trackers and no real-money purchases.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button className="btn ghost" onClick={download}>Download my data</button>
         {!confirm ? <button className="btn ghost" onClick={() => setConfirm(true)}>Delete all my data</button> : (
           <span className="flex flex-wrap items-center gap-2 rounded-2xl border border-softred/60 p-2">
-            <span>This removes your journal, check-ins, tickets and lanterns for good.</span>
-            <button className="btn" onClick={() => { reset(); router.replace("/"); }}>Yes, delete everything</button>
+            <span>This removes your journal, check-ins and character on this device. If you joined the town, it also asks the server to forget that key.</span>
+            <button className="btn" onClick={() => {
+              const session = loadCloud();
+              const finish = () => { reset(); router.replace("/"); };
+              if (!session) { finish(); return; }
+              cloudFetch("/api/account", session.token, { method: "DELETE" }).finally(finish);
+            }}>Yes, delete everything</button>
             <button className="btn ghost" onClick={() => setConfirm(false)}>Keep it</button>
           </span>
         )}
+      </div>
+
+      <h2 className="mt-8 font-display text-xl font-semibold">Add to your home screen</h2>
+      <div className="card mt-2 text-muted">
+        <p>mysanity can sit on your phone like an app. On iPhone: Share, then Add to Home Screen. On Android: the browser menu, then Install app or Add to Home screen.</p>
       </div>
 
       <h2 className="mt-8 font-display text-xl font-semibold">About and safety</h2>

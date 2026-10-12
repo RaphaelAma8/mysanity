@@ -17,7 +17,7 @@ export const MAX_SHIFTS_PER_DAY = 2;
 export interface Avatar { skin: number; hair: number; style: number; shirt: number }
 export interface Moment { day: number; text: string; icon: string }
 
-/** Everything about the player's character and home. Saved only on the device. */
+/** The character and home. Kept on the device. A cloud copy, if the person asks for one, is this object only. */
 export interface Sim {
   v: 1;
   startedAt: string;
@@ -39,7 +39,16 @@ export interface Sim {
   travelled: string[];
   petFedToday: boolean;
   supportedByCommunity: number;
+  /** Optional small things done today. Cleared at bedtime. Missing one changes nothing. */
+  littleWins: string[];
 }
+
+export const LITTLE_WINS: { id: string; label: string; icon: string }[] = [
+  { id: "outside", label: "Step outside", icon: "🌲" },
+  { id: "nourish", label: "Eat something", icon: "🍲" },
+  { id: "connect", label: "Be with someone", icon: "💛" },
+  { id: "settle", label: "Settle for a moment", icon: "🍃" },
+];
 
 export interface Result {
   sim: Sim;

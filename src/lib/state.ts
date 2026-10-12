@@ -1,7 +1,11 @@
 import { newSim } from "./sim/engine";
 import { BLOCKS_PER_DAY, NEED_KEYS, type Avatar, type Moment, type Needs, type Sim } from "./sim/types";
 
-/** All app state lives on the person's device. Nothing here is ever sent to a server. */
+/**
+ * The journal and mood check-ins live only on this device. They are never included in a cloud save.
+ * The character (sim) can optionally be copied to the host's database if the person turns that on.
+ */
+export const CLOUD_KEY = "mysanity:cloud";
 
 export type Mood = 1 | 2 | 3 | 4 | 5;
 export interface Checkin { at: string; mood: Mood; tags: string[] }
@@ -77,6 +81,7 @@ export function sanitizeSim(p: unknown): Sim | null {
     friends, shiftsToday: num(p.shiftsToday, 0, 0, 20), helpedToday: p.helpedToday === true, visitedToday: strArr(p.visitedToday),
     moments, lastBillDay: num(p.lastBillDay, 0), avatar: sanitizeAvatar(p.avatar), travelled: strArr(p.travelled),
     petFedToday: p.petFedToday === true, supportedByCommunity: num(p.supportedByCommunity, 0),
+    littleWins: strArr(p.littleWins).map((id) => id.slice(0, 24)).slice(0, 8),
   };
 }
 
@@ -117,6 +122,7 @@ export function clearAllData(kv: KV): void {
   try {
     kv.removeItem(STORAGE_KEY);
     kv.removeItem(LEGACY_STORAGE_KEY);
+    kv.removeItem(CLOUD_KEY);
   } catch {
     /* nothing to clear */
   }

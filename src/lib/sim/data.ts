@@ -85,6 +85,10 @@ export const PLACES: Place[] = [
   { id: "centre", name: "Community centre", icon: "🤝", blurb: "Free meals, free company, and people who are glad you came.", kind: "free" },
   { id: "shelter", name: "Animal shelter", icon: "🐾", blurb: "Adopt a cat who needs a home.", kind: "special" },
   { id: "travel", name: "Airport", icon: "✈️", blurb: "Take a trip to another province.", kind: "special" },
+  { id: "club", name: "Lakeside club", icon: "🎶", blurb: "A room to sit with other people. Nothing to perform.", kind: "free" },
+  { id: "bank", name: "Credit union", icon: "🏦", blurb: "A notice of your game dollars. Not a real bank.", kind: "special" },
+  { id: "farm", name: "Bay farm", icon: "🌾", blurb: "Rows, quiet, and open sky.", kind: "free" },
+  { id: "gym", name: "The gym", icon: "🤸", blurb: "Gentle movement, and you can stop whenever you like.", kind: "free" },
 ];
 export const SHOP_ITEMS: Record<string, string[]> = {
   plants: ["plant_pothos", "plant_herbs", "plant_monstera"],

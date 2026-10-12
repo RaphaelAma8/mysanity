@@ -66,6 +66,14 @@ describe("a day at home", () => {
       expect(availability({ ...s, inventory: [item] }, id).ok, id).toBe(true);
     }
   });
+  it("marks a small win without punishing a missed one, and clears the list at bedtime", () => {
+    let s = fresh();
+    s = ok(perform(s, "shower", "on")).sim;
+    expect(s.littleWins).toContain("settle");
+    s = ok(sleep(s)).sim;
+    expect(s.littleWins).toEqual([]);
+    expect(s.money).toBeGreaterThanOrEqual(0);
+  });
   it("sleeping starts a new day, restores energy, and resets daily limits", () => {
     let s = fresh({ shiftsToday: 2, helpedToday: true, visitedToday: ["park"], petFedToday: true, needs: { ...fresh().needs, energy: 5 } });
     s = ok(sleep(s)).sim;

@@ -1,4 +1,4 @@
-import { emptyState, loadState, saveState, type State } from "./state";
+import { CLOUD_KEY, emptyState, loadState, saveState, type State } from "./state";
 
 /**
  * A tiny external store over on-device storage, for useSyncExternalStore.
@@ -36,7 +36,7 @@ export function replace(next: State) {
 }
 export function resetAll() {
   const s = storage();
-  try { s?.removeItem("mysanity:v1"); s?.removeItem("north-haven:v1"); } catch { /* ignore */ }
+  try { s?.removeItem("mysanity:v1"); s?.removeItem("north-haven:v1"); s?.removeItem(CLOUD_KEY); } catch { /* ignore */ }
   memory.clear();
   cache = emptyState();
   listeners.forEach((l) => l());
