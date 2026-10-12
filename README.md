@@ -101,7 +101,8 @@ when the variable is missing, so a deploy without it is still a complete single-
    DATABASE_URL="postgresql://…" npm run db:migrate
    ```
 
-   That runs the SQL in `drizzle/`. If `DATABASE_URL` is unset, the command prints a note and exits
+   That runs the SQL in `drizzle/` (`0000_kind_town.sql`, `0001_street_boards.sql`, and
+   `0002_promo_kind.sql`). If `DATABASE_URL` is unset, the command prints a note and exits
    successfully, so a build never depends on it. Vercel does not run migrations for you.
 4. Deploy (or redeploy) on Vercel with the Next.js defaults. Open the site, create a character, open
    **People**, and join the town. If People says the town is just yours, `DATABASE_URL` is missing or
@@ -114,8 +115,12 @@ It does not store the journal or mood check-ins. Those keys are rejected if a cl
 including on a board submission. Boards are not chosen from either.
 
 Set both `DATABASE_URL` and `ADMIN_TOKEN` in Vercel before you expect the shared town or the review
-queue to work. Apply migrations after pulling, including `drizzle/0001_street_boards.sql`, with
-`npm run db:migrate`. Vercel does not run that step.
+queue to work. Apply migrations after pulling, including `drizzle/0001_street_boards.sql` and
+`drizzle/0002_promo_kind.sql`, with `npm run db:migrate`. Vercel does not run that step.
+`0002` adds a `kind` column so a song or a business can wait in the same `/admin/boards` queue as a
+street board. Approved songs and businesses show on the street boards, a banner, and the club
+speakers. Nothing is shown to everyone while it is still waiting. There is no card payment in this
+build; the club form marks where a future payment provider would go.
 
 ## Deploy to Vercel
 
@@ -193,7 +198,13 @@ Never ship a build made with `NEXT_PUBLIC_E2E_FAST=1`.
 
 ## Known limits
 
-- One character, one home, one town. The art is original and drawn in the browser.
+- People on the street are CC0 Quaternius superhero characters (Idle, Walk, and Dance clips),
+  credited in `public/models/people/LICENSE.txt`. Storefronts and board art are painted in the browser.
+  Skin, hair, and clothing colours come from the character creator. A hairstyle picks the body it was
+  rigged to, because the save has no separate gender field.
+- You can own more than one home and more than one car. Furniture stays where you place it. Unpaid
+  bills and shop rent are covered by the community, and nothing you own is taken. The club menu is
+  mocktails and snacks. Other players are visible in public rooms, never inside your home.
 - The journal never leaves the device. A character save can be copied to Postgres only after the person joins
   the town. Clearing browser data still removes the local game; export remains available, and Load character
   can bring a cloud copy back.
@@ -207,4 +218,4 @@ Never ship a build made with `NEXT_PUBLIC_E2E_FAST=1`.
 More places and seasonal Canadian events (first snow, Thanksgiving, Canada Day), more homes, more friends and
 stories, small hobby mini-games. Keep social features on preset notes. Do not add open chat without moderation
 and another clinical review. Business boards stay hand-reviewed and are never tied to a journal, a mood, or a
-real-money purchase.
+real-money purchase. A payment provider is intentionally not wired up.

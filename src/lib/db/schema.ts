@@ -34,6 +34,7 @@ export const advertisements = pgTable("advertisements", {
   detail: text("detail").notNull().default(""),
   contact: text("contact").notNull().default(""),
   accent: text("accent").notNull(),
+  kind: text("kind").notNull().default("board"),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),

@@ -9,6 +9,7 @@ interface Pending {
   line: string;
   detail: string;
   contact: string;
+  kind?: string;
   createdAt: string;
 }
 
@@ -43,7 +44,7 @@ export default function ReviewBoards() {
     <div>
       <TopNav />
       <h1 className="font-display text-3xl font-semibold">Board review</h1>
-      <p className="mt-2 text-muted">Paste the review key from the host&apos;s <code>ADMIN_TOKEN</code> setting. Approved boards show on the homepage and along the streets. They are the same for every person.</p>
+      <p className="mt-2 text-muted">Paste the review key from the host&apos;s <code>ADMIN_TOKEN</code> setting. Approved street boards, songs, and businesses show for everyone. Nothing here is charged. A payment provider is not connected.</p>
       <form className="mt-4 grid gap-3" onSubmit={(e) => void load(e)}>
         <label className="text-sm font-semibold" htmlFor="key">Review key</label>
         <input id="key" type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" className="rounded-2xl border border-line bg-surface p-3 text-lg" />
@@ -54,6 +55,7 @@ export default function ReviewBoards() {
         {ads.map((ad) => (
           <li key={ad.id} className="card">
             <p className="font-display text-xl font-semibold">{ad.businessName}</p>
+            <p className="text-sm text-muted">{ad.kind === "song" ? "Song" : ad.kind === "business" ? "Business" : "Street board"}</p>
             <p>{ad.line}</p>
             {ad.detail && <p className="text-sm text-muted">{ad.detail}</p>}
             {ad.contact && <p className="text-sm">{ad.contact}</p>}

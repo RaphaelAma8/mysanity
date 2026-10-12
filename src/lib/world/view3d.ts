@@ -1,13 +1,15 @@
 /**
- * Lit town view. Original meshes and painted textures — no downloaded models.
+ * Lit town view. Buildings and boards are painted here.
+ * People are CC0 Quaternius characters (see public/models/people/LICENSE.txt).
  * Tile (x, y) maps to world (x, 0, z).
  */
 import * as THREE from "three";
+import { carById, itemById } from "@/lib/sim/data";
 import { seasonOf, type Season, type Weather } from "@/lib/sim/engine";
 import type { Sim } from "@/lib/sim/types";
 import { paintBillboard, paintStorefront } from "./adpaint";
 import type { Actor, Sign } from "./draw";
-import { createHuman, poseHuman, type HumanRig } from "./human3d";
+import { createHuman, loadPeople, peopleReady, poseHuman, type HumanRig } from "./people3d";
 import { GROUND, type Building, type BoardSlot, type Prop, type WorldMap } from "./maps";
 
 export interface TownFrame {
@@ -19,6 +21,8 @@ export interface TownFrame {
   quiet: boolean;
   time: number;
   weather: Weather;
+  driving: boolean;
+  carPaint?: string;
 }
 
 export interface TownView {
@@ -43,7 +47,8 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
   renderer.setClearColor("#9fd0ee");
 
   const scene = new THREE.Scene();
-  const fog = new THREE.Fog("#c5dff0", 14, 36);
+  const fog = new THREE.Fog("#c5dff0", 18, 62);
+  void loadPeople();
   scene.fog = fog;
 
   const camera = new THREE.PerspectiveCamera(38, 1, 0.08, 90);
@@ -66,10 +71,14 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
   const dynamic = new THREE.Group();
   scene.add(dynamic);
 
+  let car: THREE.Group | null = null;
+  let furnRoot: THREE.Group | null = null;
+  let furnKey = "";
   let signRoot: THREE.Group | null = null;
   let signKey = "";
   let weatherBits: THREE.Points | null = null;
   let weatherKind = "";
+  let traffic: THREE.Group | null = null;
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
@@ -97,8 +106,12 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
     const key = `${state.map.id}:${night ? 1 : 0}:${season}`;
     if (key !== staticKey) rebuild(state.map, night, season);
     syncSigns(state.map, state.signs);
+    syncCar(state);
     syncPeople(state);
+    syncFurniture(state);
     syncWeather(state);
+    syncTraffic(state);
+    pulseClub(state);
     placeCamera(state, indoors);
     renderer.render(scene, camera);
   }
@@ -113,8 +126,8 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
     const sky = night ? "#1a2740" : weather === "snow" ? "#d5e2ee" : weather === "rain" ? "#8ea4b6" : "#9fd0ee";
     renderer.setClearColor(sky);
     fog.color.set(indoors ? "#f3ecdf" : sky);
-    fog.near = indoors ? 8 : 12;
-    fog.far = indoors ? 22 : night ? 28 : 36;
+    fog.near = indoors ? 10 : 18;
+    fog.far = indoors ? 30 : night ? 48 : 64;
   }
 
   function rebuild(map: WorldMap, night: boolean, season: Season) {
@@ -127,8 +140,10 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
     for (const building of map.buildings) staticRoot.add(buildingMesh(building, night));
     for (const tree of map.trees) staticRoot.add(treeMesh(tree, season));
     for (const prop of map.props) staticRoot.add(propMesh(prop));
-    if (map.id === "town") addCars(staticRoot, map);
-    else furnish(staticRoot, map);
+    if (map.id === "town") {
+      addCars(staticRoot, map);
+      dressStreet(staticRoot, map);
+    } else furnish(staticRoot, map);
     scene.add(staticRoot);
     staticKey = `${map.id}:${night ? 1 : 0}:${season}`;
   }
@@ -145,7 +160,8 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
     if (staticRoot) disposeTree(staticRoot);
     if (signRoot) disposeTree(signRoot);
     if (weatherBits) disposeTree(weatherBits);
-    for (const entry of people.values()) disposeTree(entry.rig.root);
+    if (traffic) disposeTree(traffic);
+    for (const entry of people.values()) entry.rig.dispose();
     for (const badge of badges.values()) disposeTree(badge);
     renderer.dispose();
   }
@@ -164,32 +180,47 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
       })),
       ...state.others,
     ];
+    if (state.map.id === "home" && state.sim.visitor) {
+      actors.push({
+        id: "visitor",
+        x: 8.2,
+        y: 7.4,
+        name: state.sim.visitor,
+        avatar: { skin: 2, hair: 4, style: 1, shirt: 2 },
+        facing: -1,
+        moving: false,
+      });
+    }
     const seen = new Set<string>();
     actors.forEach((actor, index) => {
       const id = actor.self ? "self" : actor.id ?? actor.name ?? `p-${index}`;
       const look = `${actor.avatar.skin}.${actor.avatar.hair}.${actor.avatar.style}.${actor.avatar.shirt}`;
       let entry = people.get(id);
+      if (!peopleReady()) return;
       if (!entry || entry.look !== look) {
         if (entry) {
           dynamic.remove(entry.rig.root);
-          disposeTree(entry.rig.root);
+          entry.rig.dispose();
         }
         const rig = createHuman(actor.avatar);
         dynamic.add(rig.root);
         entry = { rig, look };
         people.set(id, entry);
       }
+      const drivingSelf = state.driving && actor.self;
+      entry.rig.root.visible = !drivingSelf;
       const sway = state.quiet || actor.self ? 0 : Math.sin(state.time * 0.7 + index) * 0.05;
       entry.rig.root.position.set(actor.x + sway, 0, actor.y);
       entry.rig.root.rotation.y = actor.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
-      poseHuman(entry.rig, state.time + index * 0.4, actor.moving, state.quiet);
+      const dancing = state.map.id === "club" && !actor.moving && !drivingSelf;
+      poseHuman(entry.rig, state.time + index * 0.4, actor.moving && !drivingSelf, state.quiet, dancing);
       seen.add(id);
       syncBadge(id, actor, entry.rig.root.position);
     });
     for (const [id, entry] of people) {
       if (seen.has(id)) continue;
       dynamic.remove(entry.rig.root);
-      disposeTree(entry.rig.root);
+      entry.rig.dispose();
       people.delete(id);
       const badge = badges.get(id);
       if (badge) {
@@ -219,7 +250,97 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
       badges.set(id, sprite);
     }
     sprite.visible = true;
-    sprite.position.set(at.x, 2.05, at.z);
+    sprite.position.set(at.x, id === "self" && car?.visible ? 1.55 : 2.15, at.z);
+  }
+
+  function syncCar(state: TownFrame) {
+    if (!state.driving || state.map.id !== "town") {
+      if (car) car.visible = false;
+      return;
+    }
+    const paint = state.carPaint ?? "#c4473a";
+    if (!car || car.name !== paint) {
+      if (car) dynamic.remove(car);
+      car = carMesh(paint);
+      car.name = paint;
+      dynamic.add(car);
+    }
+    car.visible = true;
+    car.position.set(state.player.x, 0, state.player.y);
+    car.rotation.y = state.player.facing === 1 ? 0 : Math.PI;
+  }
+
+  function syncFurniture(state: TownFrame) {
+    if (state.map.id !== "home") {
+      if (furnRoot) furnRoot.visible = false;
+      return;
+    }
+    const spots = state.sim.placements.filter((spot) => spot.homeId === state.sim.homeId);
+    const key = `${spots.map((spot) => `${spot.itemId}@${spot.x},${spot.y}`).join("|")}|${state.sim.cars.join(",")}`;
+    if (!furnRoot) {
+      furnRoot = new THREE.Group();
+      scene.add(furnRoot);
+    }
+    const placed = furnRoot;
+    placed.visible = true;
+    if (key === furnKey) return;
+    while (placed.children.length) {
+      const child = placed.children.pop();
+      if (child) disposeTree(child);
+    }
+    for (const spot of spots) {
+      const mesh = furnitureMesh(spot.itemId);
+      mesh.position.set(spot.x + 0.5, 0, spot.y + 0.5);
+      placed.add(mesh);
+    }
+    state.sim.cars.forEach((id, index) => {
+      const mesh = carMesh(carById(id)?.color ?? "#c4473a");
+      mesh.scale.setScalar(0.72);
+      mesh.position.set(12.2, 0, 8.2 + index * 1.15);
+      placed.add(mesh);
+    });
+    const rooms: [string, number, number][] = [
+      ["Bedroom", 2.2, 2.2],
+      ["Bath", 10.2, 2.2],
+      ["Kitchen", 2.4, 6.2],
+      ["Living", 8.2, 6.4],
+      ["Garage", 12.4, 9.2],
+    ];
+    for (const [label, x, z] of rooms) {
+      const sprite = labelSprite(label);
+      sprite.position.set(x, 1.35, z);
+      placed.add(sprite);
+    }
+    furnKey = key;
+  }
+
+  function syncTraffic(state: TownFrame) {
+    if (state.map.id !== "town" || state.quiet) {
+      if (traffic) traffic.visible = false;
+      return;
+    }
+    if (!traffic) {
+      traffic = new THREE.Group();
+      traffic.add(trafficBus());
+      for (let i = 0; i < 4; i++) traffic.add(carMesh(CAR_COLORS[i % CAR_COLORS.length]));
+      scene.add(traffic);
+    }
+    traffic.visible = true;
+    const span = 40;
+    traffic.children.forEach((child, index) => {
+      const speed = index === 0 ? 1.6 : 2.1 + (index % 3) * 0.35;
+      const x = 3 + ((index * 9 + state.time * speed) % span);
+      const lane = index % 2 === 0 ? 16.35 : 17.55;
+      child.position.set(x, 0, lane);
+      child.rotation.y = index % 2 === 0 ? 0 : Math.PI;
+    });
+  }
+
+  function pulseClub(state: TownFrame) {
+    if (!staticRoot || state.map.id !== "club" || state.quiet) return;
+    const grid = staticRoot.getObjectByName("dance-grid") as THREE.Mesh | undefined;
+    const material = grid?.material as THREE.MeshBasicMaterial | undefined;
+    if (material) material.opacity = 0.62 + Math.sin(state.time * 2.1) * 0.22;
   }
 
   function syncSigns(map: WorldMap, signs: Sign[]) {
@@ -272,38 +393,38 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
     const px = state.player.x;
     const pz = state.player.y;
     const map = state.map;
+    const fov = indoors ? 42 : 46;
+    if (camera.fov !== fov) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
     if (indoors) {
-      camera.position.set(map.w / 2, 4.2, map.h - 0.2);
-      camera.lookAt(map.w / 2, 1.05, map.h * 0.42);
+      if (map.id === "home") {
+        const t = state.quiet ? 0.6 : state.time * 0.12;
+        camera.position.set(map.w / 2 + Math.sin(t) * 7.2, 6.6, map.h / 2 + Math.cos(t) * 5.2);
+        camera.lookAt(map.w / 2, 0.7, map.h * 0.42);
+        return;
+      }
+      camera.position.set(map.w / 2, 6.5, map.h + 0.6);
+      camera.lookAt(map.w / 2, 0.85, map.h * 0.32);
       return;
     }
     const aim = roadAim(map, px, pz);
-    const ahead = spaceBoards(map.billboards)
-      .map((slot) => ({
-        slot,
-        along: (slot.x + 0.5 - aim.x) * aim.dx + (slot.y + 0.5 - aim.z) * aim.dz,
-      }))
-      .filter((item) => item.along > 1.5)
-      .sort((a, b) => a.along - b.along)[0];
-    if (ahead) {
-      const sx = ahead.slot.x + 0.5;
-      const sz = ahead.slot.y + 0.5;
-      const spots: [number, number][] = [
-        [sx - aim.dx * 4.4 + aim.dz * 1.8, sz - aim.dz * 4.4 - aim.dx * 1.8],
-        [sx - aim.dx * 4.4 - aim.dz * 1.8, sz - aim.dz * 4.4 + aim.dx * 1.8],
-        [sx - aim.dx * 3.2, sz - aim.dz * 3.2],
-      ];
-      let cx = spots[0][0];
-      let cz = spots[0][1];
-      for (const [x, z] of spots) {
-        if (openGround(map, x, z)) { cx = x; cz = z; break; }
-      }
-      camera.position.set(cx, 2.2, cz);
-      camera.lookAt(sx, 1.8, sz);
-      return;
+    const face = state.player.facing === 1 ? 1 : -1;
+    const dx = aim.dx * face;
+    const dz = aim.dz * face;
+    const candidates: [number, number][] = [
+      [px - dx * 8.4 + dz * 3.8, pz - dz * 8.4 - dx * 3.8],
+      [px - dx * 7.6 - dz * 3.4, pz - dz * 7.6 + dx * 3.4],
+      [px - dx * 6.2, pz - dz * 6.2],
+    ];
+    let cx = candidates[0][0];
+    let cz = candidates[0][1];
+    for (const [x, z] of candidates) {
+      if (openGround(map, x, z)) { cx = x; cz = z; break; }
     }
-    camera.position.set(aim.x - aim.dx * 3, 2.4, aim.z - aim.dz * 3);
-    camera.lookAt(aim.x + aim.dx * 6, 1.4, aim.z + aim.dz * 6);
+    camera.position.set(cx, 4.8, cz);
+    camera.lookAt(px + dx * 6.5, 1.15, pz + dz * 6.5);
   }
 
   return { frame, groundAt, dispose };
@@ -620,6 +741,18 @@ function propMesh(prop: Prop) {
     body.scale.set(1.6, 0.7, 0.8);
     body.position.y = 0.1;
     group.add(body);
+  } else if (prop.kind === "speaker") {
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.9, 0.4), new THREE.MeshStandardMaterial({ color: "#1a1224", roughness: 0.45 }));
+    cab.position.y = 0.5;
+    const cone = new THREE.Mesh(new THREE.CircleGeometry(0.16, 12), new THREE.MeshStandardMaterial({ color: "#3de0ff", emissive: "#3de0ff", emissiveIntensity: 0.6 }));
+    cone.position.set(0, 0.55, 0.21);
+    group.add(cab, cone);
+  } else if (prop.kind === "booth") {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 0.7), new THREE.MeshStandardMaterial({ color: "#6b3d6e", roughness: 0.6 }));
+    seat.position.y = 0.32;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 0.12), new THREE.MeshStandardMaterial({ color: "#4a2758", roughness: 0.6 }));
+    back.position.set(0, 0.62, -0.28);
+    group.add(seat, back);
   }
   group.position.set(prop.x + 0.5, 0, prop.y + 0.5);
   return group;
@@ -667,7 +800,27 @@ function furnish(group: THREE.Group, map: WorldMap) {
   const lamp = new THREE.PointLight("#ffd2a1", 1.6, 14, 1.4);
   lamp.position.set(map.w / 2, 2.6, map.h / 2);
   group.add(lamp);
-  if (map.id !== "home") {
+  if (map.id === "club") {
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.4, 4.4),
+      new THREE.MeshStandardMaterial({ color: "#140818", emissive: "#ff2bd6", emissiveIntensity: 0.35, roughness: 0.28 }),
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(map.w / 2, 0.03, 6.15);
+    const grid = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.1, 4.1),
+      new THREE.MeshBasicMaterial({ map: neonGridTexture(), transparent: true, opacity: 0.8 }),
+    );
+    grid.name = "dance-grid";
+    grid.rotation.x = -Math.PI / 2;
+    grid.position.set(map.w / 2, 0.05, 6.15);
+    const magenta = new THREE.PointLight("#ff4ad8", 1.5, 11, 1.4);
+    magenta.position.set(3.4, 2.1, 6);
+    const cyan = new THREE.PointLight("#3de0ff", 1.3, 11, 1.4);
+    cyan.position.set(8.4, 2.1, 6);
+    group.add(floor, grid, magenta, cyan);
+  }
+  if (map.id !== "home" && map.id !== "club") {
     const shelf = new THREE.Mesh(
       new THREE.BoxGeometry(4.2, 1.3, 0.35),
       new THREE.MeshStandardMaterial({ color: "#6b4a32", roughness: 0.6 }),
@@ -701,6 +854,69 @@ function addCars(group: THREE.Group, map: WorldMap) {
   });
 }
 
+function dressStreet(group: THREE.Group, map: WorldMap) {
+  for (let x = 6; x < map.w - 4; x += 7) {
+    group.add(lampPost(x + 0.4, 15.35));
+    group.add(binMesh(x + 2.6, 18.55));
+  }
+}
+
+function lampPost(x: number, z: number) {
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 2.3, 6), new THREE.MeshStandardMaterial({ color: "#3d4654", roughness: 0.5, metalness: 0.3 }));
+  pole.position.y = 1.15;
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), new THREE.MeshStandardMaterial({ color: "#fff4d2", emissive: "#ffe7a3", emissiveIntensity: 0.85 }));
+  lamp.position.y = 2.25;
+  group.add(pole, lamp);
+  group.position.set(x, 0, z);
+  return group;
+}
+
+function binMesh(x: number, z: number) {
+  const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.48, 8), new THREE.MeshStandardMaterial({ color: "#2f6b4f", roughness: 0.6 }));
+  bin.position.set(x, 0.24, z);
+  return bin;
+}
+
+function trafficBus() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(3.1, 1.15, 1.15), new THREE.MeshStandardMaterial({ color: "#e7a322", roughness: 0.45 }));
+  body.position.y = 0.72;
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.38, 1.02), new THREE.MeshStandardMaterial({ color: "#d5eef8", roughness: 0.15 }));
+  glass.position.y = 1.05;
+  group.add(body, glass);
+  return group;
+}
+
+function neonGridTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "rgba(12, 4, 20, 0.15)";
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.strokeStyle = "#ff4ad8";
+    ctx.lineWidth = 6;
+    for (let i = 16; i < 256; i += 32) {
+      ctx.beginPath();
+      ctx.moveTo(i, 0);
+      ctx.lineTo(i, 256);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#3de0ff";
+    for (let i = 16; i < 256; i += 32) {
+      ctx.beginPath();
+      ctx.moveTo(0, i);
+      ctx.lineTo(256, i);
+      ctx.stroke();
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function spaceBoards(slots: BoardSlot[]) {
   const kept: BoardSlot[] = [];
   for (const slot of slots) {
@@ -708,6 +924,22 @@ function spaceBoards(slots: BoardSlot[]) {
     kept.push(slot);
   }
   return kept;
+}
+
+function furnitureMesh(itemId: string) {
+  const item = itemById(itemId);
+  const slot = item?.slot;
+  const color = slot === "plant" ? "#2f7a42" : slot === "light" ? "#f0d78c" : slot === "rug" ? "#8d3d45" : slot === "wall" ? "#d7e6f2" : "#6b4a32";
+  const geo = slot === "rug"
+    ? new THREE.BoxGeometry(1.1, 0.04, 0.8)
+    : slot === "plant"
+      ? new THREE.CylinderGeometry(0.16, 0.2, 0.42, 8)
+      : slot === "light"
+        ? new THREE.CylinderGeometry(0.08, 0.1, 0.7, 8)
+        : new THREE.BoxGeometry(0.48, 0.42, 0.4);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.7 }));
+  mesh.position.y = slot === "rug" ? 0.03 : slot === "light" ? 0.36 : 0.22;
+  return mesh;
 }
 
 function carMesh(color: string) {
@@ -740,21 +972,14 @@ function carMesh(color: string) {
 function billboardMesh(map: WorldMap, sign: Sign, index: number) {
   const group = new THREE.Group();
   const face = roadFacing(map, sign.x, sign.y);
-  const yaw = face + (index % 2 === 0 ? 0.7 : -0.7);
+  const yaw = face + (index % 2 === 0 ? 0.45 : -0.45);
   const painted = canvasTexture(paintBillboard(sign.name, sign.line, sign.accent, index % 6));
   const material = new THREE.MeshStandardMaterial({ map: painted, roughness: 0.5 });
   const board = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.9), material);
   board.position.y = 1.9;
   board.rotation.y = yaw;
-  // The far side is turned around, which flips the letters, so its texture is flipped back.
-  const flipped = painted.clone();
-  flipped.wrapS = THREE.RepeatWrapping;
-  flipped.repeat.x = -1;
-  flipped.offset.x = 1;
-  const back = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.4, 1.9),
-    new THREE.MeshStandardMaterial({ map: flipped, roughness: 0.5 }),
-  );
+  // A half turn presents the same texture the right way round. Flipping UVs mirrors the letters.
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.9), material);
   back.position.y = 1.9;
   back.rotation.y = yaw + Math.PI;
   const post = new THREE.Mesh(

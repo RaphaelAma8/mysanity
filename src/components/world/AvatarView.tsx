@@ -16,7 +16,8 @@ export function AvatarView({ avatar }: { avatar: Avatar }) {
     let cleanup = () => {};
     void (async () => {
       const THREE = await import("three");
-      const { createHuman, poseHuman } = await import("@/lib/world/human3d");
+      const { createHuman, loadPeople, poseHuman } = await import("@/lib/world/people3d");
+      await loadPeople();
       if (dead || !canvas.isConnected) return;
       const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
       renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -24,8 +25,8 @@ export function AvatarView({ avatar }: { avatar: Avatar }) {
       renderer.setClearColor(0x000000, 0);
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
-      camera.position.set(0.55, 1.15, 2.15);
-      camera.lookAt(0, 0.98, 0);
+      camera.position.set(0.85, 1.45, 3.35);
+      camera.lookAt(0, 0.92, 0);
       const backdrop = new THREE.Mesh(
         new THREE.CircleGeometry(1.15, 40),
         new THREE.MeshStandardMaterial({ color: "#efe4d4", roughness: 0.9 }),

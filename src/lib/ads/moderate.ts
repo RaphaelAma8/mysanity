@@ -7,12 +7,15 @@ export const AD_ACCENTS = ["#1f6b4a", "#8c3b32", "#1e4d6b", "#6b4a32", "#3d4a6b"
 const PRESSURE = /\b(hurry|limited time|last chance|act now|only today|sale ends|loot|streak|leaderboard)\b/i;
 const HOSTILE = /\b(nigger|faggot|retard|kike|spic|chink|tranny)\b/i;
 
+export type AdKind = "board" | "song" | "business";
+
 export interface AdDraft {
   businessName: string;
   line: string;
   detail: string;
   contact: string;
   accent: string;
+  kind: AdKind;
 }
 
 export type AdVerdict =
@@ -71,7 +74,12 @@ export function moderateAd(body: unknown): AdVerdict {
   }
   const contact = contactOf(src.contact);
   if (!contact.ok) return { ok: false, crisis: false, reason: contact.reason };
-  return { ok: true, ad: { businessName, line, detail, contact: contact.contact, accent: accentFor(businessName) } };
+  const kind = src.kind === undefined || src.kind === "board" ? "board" : src.kind === "song" || src.kind === "business" ? src.kind : null;
+  if (!kind) return { ok: false, crisis: false, reason: "Choose a street board, a song, or a business." };
+  if (kind !== "board" && !contact.contact.startsWith("http")) {
+    return { ok: false, crisis: false, reason: "Add an https link so people can open it after it is approved." };
+  }
+  return { ok: true, ad: { businessName, line, detail, contact: contact.contact, accent: accentFor(businessName), kind } };
 }
 
 export interface ApprovedAd {
@@ -80,6 +88,7 @@ export interface ApprovedAd {
   line: string;
   accent: string;
   contact: string;
+  kind: AdKind;
 }
 
 export interface PaintedBoard {

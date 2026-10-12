@@ -7,7 +7,10 @@ describe("business boards", () => {
   it("accepts a plain submission and refuses crisis, pressure, and private fields", () => {
     const ok = moderateAd({ businessName: "Lake Bakery", line: "Bread most mornings", contact: "https://example.com/bakery" });
     expect(ok.ok).toBe(true);
-    if (ok.ok) expect(ok.ad.accent.startsWith("#")).toBe(true);
+    if (ok.ok) {
+      expect(ok.ad.accent.startsWith("#")).toBe(true);
+      expect(ok.ad.kind).toBe("board");
+    }
 
     const crisis = moderateAd({ businessName: "Shop", line: "I want to die" });
     expect(crisis.ok).toBe(false);
@@ -28,14 +31,25 @@ describe("business boards", () => {
   it("paints the same boards for everyone, with no viewer attached", () => {
     const slots = [{ id: "a", x: 1, y: 2 }, { id: "b", x: 3, y: 4 }, { id: "c", x: 5, y: 6 }];
     const ads = [
-      { id: "z", businessName: "Zed", line: "One", accent: "#1f6b4a", contact: "" },
-      { id: "a", businessName: "Aye", line: "Two", accent: "#8c3b32", contact: "" },
+      { id: "z", businessName: "Zed", line: "One", accent: "#1f6b4a", contact: "", kind: "board" as const },
+      { id: "a", businessName: "Aye", line: "Two", accent: "#8c3b32", contact: "", kind: "board" as const },
     ];
     const first = assignBoards(slots, ads);
     const second = assignBoards(slots, [...ads].reverse());
     expect(first.map((b) => b.ad?.businessName)).toEqual(["Aye", "Zed", "Aye"]);
     expect(second).toEqual(first);
     expect(assignBoards(slots, [])).toEqual(slots.map((s) => ({ ...s, ad: null })));
+  });
+
+  it("holds a song for review until it has an https link, and still offers 9-8-8", () => {
+    const missing = moderateAd({ businessName: "Night bus", line: "A quiet instrumental", kind: "song", contact: "" });
+    expect(missing.ok).toBe(false);
+    const song = moderateAd({ businessName: "Night bus", line: "A quiet instrumental", kind: "song", contact: "https://example.com/night-bus" });
+    expect(song.ok).toBe(true);
+    if (song.ok) expect(song.ad.kind).toBe("song");
+    const crisis = moderateAd({ businessName: "Night bus", line: "I want to die", kind: "song", contact: "https://example.com/night-bus" });
+    expect(crisis.ok).toBe(false);
+    if (!crisis.ok) expect(crisis.reason).toMatch(/9-8-8/);
   });
 
   it("lets people share the club, gym and farm without taking money", () => {

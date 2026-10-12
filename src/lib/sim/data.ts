@@ -38,6 +38,42 @@ export const ADOPT_PRICE = 50;
 export const TRAVEL_PRICE = 120;
 export const WEEKLY_BILLS = 60;
 export const START_MONEY = 200;
+export interface CarListing { id: string; name: string; price: number; speed: number; seats: number; color: string; blurb: string }
+/** Fixed prices. Walking still works, and a car is never taken away. */
+export const CARS: CarListing[] = [
+  { id: "hatch", name: "Cedar hatch", price: 120, speed: 2, seats: 2, color: "#c4473a", blurb: "A small hatch for the main street." },
+  { id: "wagon", name: "Bay wagon", price: 150, speed: 3, seats: 4, color: "#1e4d6b", blurb: "Room for a quiet drive, with the same price every day." },
+];
+export const carById = (id: string) => CARS.find((car) => car.id === id);
+
+export interface Drink { id: string; name: string; price: number; icon: string; effects: Effects; blurb: string }
+/** The club menu is mocktails and snacks. No alcohol, and the prices do not change. */
+export const DRINKS: Drink[] = [
+  { id: "spruce", name: "Spruce soda", price: 6, icon: "🥤", effects: { fun: 6, social: 2 }, blurb: "A sparkling mocktail. The same price whenever you want one." },
+  { id: "berry", name: "Berry cooler", price: 8, icon: "🫐", effects: { fun: 8, social: 4 }, blurb: "Berry and mint. A mocktail, nothing stronger." },
+  { id: "cocoa", name: "Maple cocoa", price: 7, icon: "☕", effects: { hunger: 10, calm: 6 }, blurb: "A warm snack in a mug." },
+  { id: "chips", name: "Kettle chips", price: 5, icon: "🥨", effects: { hunger: 12, fun: 3 }, blurb: "A small bag of chips at the bar." },
+];
+export const drinkById = (id: string) => DRINKS.find((drink) => drink.id === id);
+
+export interface HomeListing { id: string; name: string; price: number; blurb: string }
+/** The cottage is free and always yours. The others keep a fixed price. */
+export const HOMES: HomeListing[] = [
+  { id: "cottage", name: "Cedar cottage", price: 0, blurb: "The home you started with. It is always yours." },
+  { id: "cabin", name: "Lakeside cabin", price: 140, blurb: "A small cabin near the water. Furniture you place stays put." },
+  { id: "flat", name: "South street flat", price: 120, blurb: "A quiet flat on the south street. Yours to keep." },
+];
+export const homeById = (id: string) => HOMES.find((home) => home.id === id);
+
+export interface BusinessListing { id: string; name: string; placeId: string; rent: number; blurb: string }
+/** Weekly rent is a reminder only. The community covers it when money is short, and the shop is never lost. */
+export const BUSINESSES: BusinessListing[] = [
+  { id: "kettle", name: "The Kettle", placeId: "cafe", rent: 24, blurb: "A small café. Weekly rent is covered by the community if money is tight." },
+  { id: "greens", name: "Bay greens", placeId: "plants", rent: 18, blurb: "A plant counter. Owning it never puts anything you have at risk." },
+  { id: "market", name: "Corner market", placeId: "grocery", rent: 20, blurb: "A grocery stall. The same kindness as home bills." },
+];
+export const businessById = (id: string) => BUSINESSES.find((shop) => shop.id === id);
+export const businessForPlace = (placeId: string) => BUSINESSES.find((shop) => shop.placeId === placeId);
 
 export interface Action {
   id: string; label: string; icon: string; blocks: number; cost?: number; effects: Effects;
@@ -85,7 +121,7 @@ export const PLACES: Place[] = [
   { id: "centre", name: "Community centre", icon: "🤝", blurb: "Free meals, free company, and people who are glad you came.", kind: "free" },
   { id: "shelter", name: "Animal shelter", icon: "🐾", blurb: "Adopt a cat who needs a home.", kind: "special" },
   { id: "travel", name: "Airport", icon: "✈️", blurb: "Take a trip to another province.", kind: "special" },
-  { id: "club", name: "Lakeside club", icon: "🎶", blurb: "A room to sit with other people. Nothing to perform.", kind: "free" },
+  { id: "club", name: "Lakeside club", icon: "🎶", blurb: "A neon room, a mocktail bar, and nothing you have to perform.", kind: "free" },
   { id: "bank", name: "Credit union", icon: "🏦", blurb: "A notice of your game dollars. Not a real bank.", kind: "special" },
   { id: "farm", name: "Bay farm", icon: "🌾", blurb: "Rows, quiet, and open sky.", kind: "free" },
   { id: "gym", name: "The gym", icon: "🤸", blurb: "Gentle movement, and you can stop whenever you like.", kind: "free" },

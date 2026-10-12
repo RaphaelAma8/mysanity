@@ -27,6 +27,8 @@ export interface Spot {
   kind: "home" | "place" | "exit" | "enter" | "flavor";
   placeId?: string;
   jobId?: string;
+  /** Which buyable home this door belongs to. The cottage is always owned. */
+  homeId?: string;
   actions?: string[];
   to?: string;
   tx?: number;
@@ -182,6 +184,14 @@ function buildRoom(opts: {
     tx: opts.exit.x,
     ty: opts.exit.y,
   });
+  if (opts.id === "club") {
+    m.spots.push(
+      { id: "vip", x: 2.2, y: 6.2, label: "VIP booth", aria: "VIP booth", kind: "place", placeId: "club" },
+      { id: "bar", x: 6, y: 3.2, label: "Bar", aria: "Bar", kind: "place", placeId: "club" },
+      { id: "dj", x: 9.2, y: 3.2, label: "DJ booth", aria: "DJ booth", kind: "place", placeId: "club" },
+    );
+    m.props.push({ kind: "speaker", x: 9, y: 2 }, { kind: "booth", x: 2, y: 6 });
+  }
   m.spawn = { x: 6.5, y: 7.5 };
   return m;
 }
@@ -288,7 +298,7 @@ function buildTown(): WorldMap {
 
   m.spots.push({
     id: "enter-home", x: home.doorX, y: home.doorY, label: "Your home", aria: "Your home: go inside",
-    kind: "enter", to: "home", tx: 8.5, ty: 10.5,
+    kind: "enter", to: "home", tx: 8.5, ty: 10.5, homeId: "cottage",
   });
   for (const b of buildings) {
     m.spots.push({
@@ -309,7 +319,7 @@ function buildTown(): WorldMap {
     kind: "place", placeId: "park",
   });
   m.spots.push({
-    id: "travel", x: 36, y: 16, label: "The bus stop", aria: "Bus stop: a trip to another province",
+    id: "travel", x: 36, y: 16, label: "Airport", aria: "Airport: a trip to another province",
     kind: "place", placeId: "travel",
   });
 
@@ -347,6 +357,28 @@ function buildTown(): WorldMap {
 
   for (let x = 8; x <= 42; x++) pave(m, x, 26);
   for (let y = 18; y <= 26; y++) pave(m, 8, y);
+  for (let x = 2; x <= 8; x++) pave(m, x, 26);
+
+  const extraHomes: (DoorSpot & { homeId: string })[] = [
+    { mapId: "cabin", homeId: "cabin", label: "Lakeside cabin", sign: "Cabin", roof: "#6b3a2a", wall: "#f4e7d4", x: 40, y: 19, w: 4, h: 4, doorX: 41, doorY: 18 },
+    { mapId: "flat", homeId: "flat", label: "South street flat", sign: "Flat", roof: "#3d4a6b", wall: "#f7f1e6", x: 2, y: 27, w: 4, h: 4, doorX: 3, doorY: 26 },
+  ];
+  for (const b of extraHomes) {
+    m.trees = m.trees.filter((tree) => tree.x < b.x || tree.y < b.y || tree.x >= b.x + b.w || tree.y >= b.y + b.h);
+    fillRect(m, b.x, b.y, b.w, b.h, GROUND.stone, true);
+    m.buildings.push({ id: b.homeId, x: b.x, y: b.y, w: b.w, h: b.h, roof: b.roof, wall: b.wall, sign: b.sign });
+    setTile(m, b.doorX, b.doorY, GROUND.path, false);
+    vpath(m, b.doorX, b.doorY, b.homeId === "cabin" ? 17 : 26);
+    m.spots.push({
+      id: `enter-${b.homeId}`, x: b.doorX, y: b.doorY, label: b.label, aria: `${b.label}: look inside`,
+      kind: "enter", homeId: b.homeId,
+    });
+  }
+  m.spots.push({
+    id: "lot", x: 6, y: 15, label: "The lot", aria: "The lot: a car, if you want one",
+    kind: "place", placeId: "lot",
+  });
+  vpath(m, 6, 15, 16);
 
   m.billboards = boardsBesideRoads(m);
   m.spawn = { x: 4.5, y: 18.5 };

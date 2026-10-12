@@ -216,8 +216,9 @@ export async function countAround() {
   return Number(row?.n ?? 0);
 }
 
-function toPublicAd(row: { id: string; businessName: string; line: string; accent: string; contact: string }): ApprovedAd {
-  return { id: row.id, businessName: row.businessName, line: row.line, accent: row.accent, contact: row.contact };
+function toPublicAd(row: { id: string; businessName: string; line: string; accent: string; contact: string; kind?: string | null }): ApprovedAd {
+  const kind = row.kind === "song" || row.kind === "business" ? row.kind : "board";
+  return { id: row.id, businessName: row.businessName, line: row.line, accent: row.accent, contact: row.contact, kind };
 }
 
 /** Approved boards only. The query has no viewer, mood, or journal column. */
@@ -230,6 +231,7 @@ export async function listApprovedAds() {
     line: advertisements.line,
     accent: advertisements.accent,
     contact: advertisements.contact,
+    kind: advertisements.kind,
   }).from(advertisements).where(eq(advertisements.status, "approved")).orderBy(asc(advertisements.id)).limit(40);
   return json({ ok: true, database: true, ads: rows.map(toPublicAd) });
 }
@@ -248,6 +250,7 @@ export async function submitAd(body: unknown) {
     detail: verdict.ad.detail,
     contact: verdict.ad.contact,
     accent: verdict.ad.accent,
+    kind: verdict.ad.kind,
     status: "pending",
   }).returning({ id: advertisements.id });
   return json({ ok: true, id: row?.id, status: "pending" });
@@ -271,7 +274,7 @@ export async function listPendingAds() {
   return json({
     ok: true,
     ads: rows.map((r) => ({
-      id: r.id, businessName: r.businessName, line: r.line, detail: r.detail, contact: r.contact, accent: r.accent, createdAt: r.createdAt,
+      id: r.id, businessName: r.businessName, line: r.line, detail: r.detail, contact: r.contact, accent: r.accent, kind: r.kind, createdAt: r.createdAt,
     })),
   });
 }

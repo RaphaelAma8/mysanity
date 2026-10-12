@@ -9,22 +9,26 @@ import { PeoplePanel } from "@/components/world/PeoplePanel";
 import { useHaven } from "@/components/HavenProvider";
 import { cloudFetch, loadCloud } from "@/lib/cloud/session";
 import { run } from "@/lib/game";
-import { actionById, itemById } from "@/lib/sim/data";
-import { availability, feedPet, perform, sleep, visit, weatherFor } from "@/lib/sim/engine";
+import { REGIONS } from "@/data/regions";
+import { actionById, carById, homeById, itemById } from "@/lib/sim/data";
+import { availability, entertain, feedPet, moveHome, perform, placeItem, sleep, visit, weatherFor } from "@/lib/sim/engine";
 import { isRough } from "@/lib/sim/look";
 import { BLOCKS_PER_DAY, LITTLE_WINS, NEED_META, type NeedKey, type Result } from "@/lib/sim/types";
 import { assignBoards, type ApprovedAd } from "@/lib/ads/moderate";
-import { EMOTES } from "@/lib/social/presets";
+import { EMOTES, KIND_PRESETS } from "@/lib/social/presets";
 import type { Actor } from "@/lib/world/draw";
-import { HOME, PUBLIC_MAPS, TOWN, mapById, type Spot } from "@/lib/world/maps";
+import { GROUND, HOME, PUBLIC_MAPS, TOWN, mapById, type Spot } from "@/lib/world/maps";
 import { findPath, nearestSpot, tryMove } from "@/lib/world/move";
 import type { TownView } from "@/lib/world/view3d";
 import { DEFAULT_AVATAR } from "@/lib/state";
 
 type Sheet =
   | { type: "home"; spot: Spot }
-  | { type: "place"; placeId: string; jobId?: string; title: string }
+  | { type: "place"; placeId: string; jobId?: string; title: string; homeId?: string }
   | { type: "map" }
+  | { type: "arrange" }
+  | { type: "phone" }
+  | { type: "buy" }
   | null;
 
 const PAGE: Record<string, string> = { breathe: "/breathe", ground: "/ground", journal: "/journal" };
@@ -48,12 +52,22 @@ export function LifeGame() {
   const keys = useRef(new Set<string>());
   const joy = useRef({ x: 0, y: 0 });
   const facing = useRef<1 | -1>(1);
+  const driving = useRef(false);
+  const [inCar, setInCar] = useState(false);
+  const [boardsOn, setBoardsOn] = useState(true);
+  const [around, setAround] = useState<number | null>(null);
+  const [database, setDatabase] = useState(false);
+  const [here, setHere] = useState({ x: HOME.spawn.x, y: HOME.spawn.y });
+  const [hop, setHop] = useState<string | null>(null);
+  const [phoneSeen, setPhoneSeen] = useState(0);
+  const [mapTab, setMapTab] = useState<"districts" | "cities">("districts");
+  const tileAt = useRef("");
   const moving = useRef(false);
   const nearId = useRef<string | null>(null);
   const viewRef = useRef<TownView | null>(null);
-  const live = useRef({ sim, others: [] as Actor[], ads: [] as ApprovedAd[], emote: null as string | null, helpOpen, mapId: "home", region, nickname: state.nickname });
+  const live = useRef({ sim, others: [] as Actor[], ads: [] as ApprovedAd[], emote: null as string | null, helpOpen, mapId: "home", region, nickname: state.nickname, boardsOn: true });
   useEffect(() => {
-    live.current = { sim, others, ads, emote, helpOpen, mapId, region, nickname: state.nickname };
+    live.current = { sim, others, ads, emote, helpOpen, mapId, region, nickname: state.nickname, boardsOn };
   });
   const sheetRef = useRef<Sheet>(null);
   const activateRef = useRef<(spot: Spot) => void>(() => {});
@@ -126,7 +140,7 @@ export function LifeGame() {
         if (pushing) {
           path.current = null;
           const len = Math.hypot(ix, iy) || 1;
-          const step = 3.15 * dt;
+          const step = pace(world, pos.current.x, pos.current.y, driving.current && liveNow.mapId === "town", carById(current.carId ?? "")?.speed ?? 2) * dt;
           pos.current = tryMove(world, pos.current.x, pos.current.y, (ix / len) * step, (iy / len) * step);
           if (Math.abs(ix) > 0.2) facing.current = ix < 0 ? -1 : 1;
         } else if (path.current && path.current.length > 0) {
@@ -136,7 +150,7 @@ export function LifeGame() {
           const dx = tx - pos.current.x;
           const dy = ty - pos.current.y;
           const dist = Math.hypot(dx, dy);
-          const step = 3.15 * dt;
+          const step = pace(world, pos.current.x, pos.current.y, driving.current && liveNow.mapId === "town", carById(current.carId ?? "")?.speed ?? 2) * dt;
           if (dist <= step) {
             pos.current = { x: tx, y: ty };
             path.current.shift();
@@ -149,6 +163,11 @@ export function LifeGame() {
         const spot = nearestSpot(world.spots, pos.current.x, pos.current.y, 0.95);
         const id = spot?.id ?? null;
         if (id !== nearId.current) { nearId.current = id; setNear(spot); }
+        const tileKey = `${liveNow.mapId}:${Math.floor(pos.current.x)}:${Math.floor(pos.current.y)}`;
+        if (tileKey !== tileAt.current) {
+          tileAt.current = tileKey;
+          setHere({ x: pos.current.x, y: pos.current.y });
+        }
         view?.frame({
           map: world,
           player: {
@@ -162,10 +181,12 @@ export function LifeGame() {
           },
           others: glideOthers(shown.current, liveNow.others, dt, quiet),
           sim: current,
-          signs: liveNow.helpOpen || liveNow.mapId !== "town" ? [] : townSigns(TOWN.billboards, liveNow.ads),
+          signs: liveNow.helpOpen || liveNow.mapId !== "town" || !liveNow.boardsOn ? [] : townSigns(TOWN.billboards, liveNow.ads),
           quiet,
           time: now / 1000,
           weather: weatherFor(current, liveNow.region),
+          driving: driving.current && liveNow.mapId === "town",
+          carPaint: carById(current.carId ?? "")?.color,
         });
         raf = requestAnimationFrame(loop);
       };
@@ -202,13 +223,24 @@ export function LifeGame() {
   }, [mapId, emote]);
 
   useEffect(() => {
-    if (mapId !== "town") return;
     let stop = false;
-    void fetch("/api/ads").then((r) => r.json()).then((data: { ads?: ApprovedAd[] }) => {
-      if (!stop && Array.isArray(data.ads)) setAds(data.ads);
-    }).catch(() => undefined);
-    return () => { stop = true; };
-  }, [mapId]);
+    const pullAds = () => {
+      void fetch("/api/ads").then((r) => r.json()).then((data: { ads?: ApprovedAd[] }) => {
+        if (!stop && Array.isArray(data.ads)) setAds(data.ads);
+      }).catch(() => undefined);
+    };
+    const pullTown = () => {
+      void fetch("/api/status").then((r) => r.json()).then((data: { database?: boolean; around?: number }) => {
+        if (stop) return;
+        setDatabase(data.database === true);
+        setAround(typeof data.around === "number" ? data.around : 0);
+      }).catch(() => undefined);
+    };
+    pullAds();
+    pullTown();
+    const id = window.setInterval(pullTown, 8000);
+    return () => { stop = true; window.clearInterval(id); };
+  }, []);
 
   useEffect(() => {
     const session = loadCloud();
@@ -248,6 +280,17 @@ export function LifeGame() {
       setSheet(null);
       return;
     }
+    if (spot.homeId) {
+      if (!sim.homes.includes(spot.homeId)) {
+        setSheet({ type: "place", placeId: "homes", title: spot.label, homeId: spot.homeId });
+        return;
+      }
+      run((s) => moveHome(s, spot.homeId!));
+      if (driving.current) { driving.current = false; setInCar(false); }
+      jump("home", 8.5, 8.8);
+      setSheet(null);
+      return;
+    }
     if (spot.kind === "enter" && spot.to) {
       if (spot.placeId && spot.placeId !== "work") {
         const r = run((s) => visit(s, spot.placeId!));
@@ -268,6 +311,18 @@ export function LifeGame() {
       }
       setSheet({ type: "place", placeId: spot.placeId, jobId: spot.jobId, title: spot.label });
     }
+  }
+
+  function travelTo(spot: Spot, byCar: boolean) {
+    const owned = !!sim?.carId && sim.cars.includes(sim.carId);
+    driving.current = byCar && owned;
+    setInCar(driving.current);
+    if (byCar && owned) {
+      setHop(`On the way to ${spot.label}`);
+      window.setTimeout(() => { setHop(null); walkTo(spot); }, 700);
+      return;
+    }
+    walkTo(spot);
   }
 
   function walkTo(spot: Spot) {
@@ -316,19 +371,31 @@ export function LifeGame() {
   }
 
   const townSpots = TOWN.spots.filter((s) => s.kind === "enter" || s.kind === "place");
+  const promos = helpOpen ? [] : ads.filter((ad) => ad.kind === "song" || ad.kind === "business");
+  const ownedCar = !!sim.carId && sim.cars.includes(sim.carId);
+  const phoneBadge = Math.max(0, others.length - phoneSeen);
+  const nearby = townSpots
+    .map((spot) => ({ spot, metres: Math.max(8, Math.round(Math.hypot(spot.x + 0.5 - here.x, spot.y + 0.5 - here.y) * 12)) }))
+    .sort((a, b) => a.metres - b.metres)
+    .slice(0, 6);
+  const district = mapId === "home" ? "Private" : "Cedar Bay";
 
   return (
     <div className="game-root fixed inset-0 z-20 bg-[#8ec8ea] text-ink">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full touch-none" aria-label="Your town" role="img" onPointerDown={onCanvasDown} />
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 px-3 pt-12">
+        {promos[0] && (
+          <PromoBanner ad={promos[0]} />
+        )}
         <div className="pointer-events-auto rounded-2xl bg-surface/92 px-3 py-2 shadow-lg shadow-black/10 ring-1 ring-black/5 backdrop-blur-sm">
           <div className="mb-1 flex items-center justify-between gap-2">
-            <p className="font-display text-base font-semibold leading-none">{map.name}</p>
+            <p className="font-display text-base font-semibold leading-none">{streetName(mapId, here.y)} · {district}</p>
             <div className="flex gap-1.5">
               <button className="btn ghost !min-h-9 !px-3 !py-1 text-sm" onClick={() => setSheet({ type: "map" })}>Map</button>
               <button className="btn ghost !min-h-9 !px-3 !py-1 text-sm" onClick={() => setPeople(true)}>People</button>
             </div>
           </div>
+          <p className="mb-1 text-xs text-muted">{mapId === "home" ? (homeById(sim.homeId)?.name ?? map.name) : map.name} · Visits {sim.visitedToday.length}{database && around !== null ? ` · ${around} online` : ""}</p>
           <Hud sim={sim} weather={weatherFor(sim, region)} />
           <ul className="flex gap-1 overflow-x-auto" aria-label="Small things today, only if you want">
             {LITTLE_WINS.map((w) => (
@@ -337,7 +404,7 @@ export function LifeGame() {
           </ul>
           {others.length > 0 && <p className="mt-1 text-xs">{others.length === 1 ? "1 person is here with you." : `${others.length} people are here with you.`}</p>}
           {late && <p className="mt-1 text-sm">The day is winding down. Time for bed.</p>}
-          <p className="mt-1 text-[11px] text-muted">Tap the ground to walk. Game dollars have no real value and can&apos;t be bought.</p>
+          <p className="mt-1 text-[11px] text-muted">{inCar ? "Driving. Stay on the street and park whenever you like." : "Tap the ground to walk."} Game dollars have no real value and can&apos;t be bought.</p>
           {res && <ResultNote r={res} />}
           {mapId === "home" && (
             <div className="mt-1.5 flex gap-1.5 overflow-x-auto" aria-label="At home">
@@ -346,7 +413,17 @@ export function LifeGame() {
               ))}
             </div>
           )}
-          {mapId === "home" && owned.length > 0 && <p className="mt-1 truncate text-xs text-muted">At home: {owned.join(", ")}</p>}
+          {mapId === "home" && (
+            <div className="mt-1 flex gap-1.5">
+              <button className="btn ghost !min-h-9 !px-3 !py-1 text-sm" onClick={() => setSheet({ type: "arrange" })}>Arrange</button>
+              <button className="btn ghost !min-h-9 !px-3 !py-1 text-sm" onClick={() => { const r = run(entertain); if (r) setRes(r); }}>Entertain</button>
+              {sim.visitor && <p className="truncate text-xs text-muted">{sim.visitor} is visiting</p>}
+              {owned.length > 0 && <p className="truncate text-xs text-muted">At home: {owned.join(", ")}</p>}
+            </div>
+          )}
+          {mapId === "club" && promos.length > 0 && (
+            <p className="mt-1 text-xs">On the speakers: {promos.map((ad) => ad.line).join(" · ")}</p>
+          )}
         </div>
         {rough && (
           <div role="note" className="pointer-events-auto mt-2 rounded-2xl border border-softred/50 bg-surface p-3 shadow">
@@ -358,26 +435,98 @@ export function LifeGame() {
       </div>
 
       <Joystick onChange={(x, y) => { joy.current = { x, y }; }} />
+      {ownedCar && mapId === "town" && !sheet && (
+        <button className="btn ghost absolute bottom-44 left-1/2 z-20 -translate-x-1/2 bg-surface shadow-lg" onClick={() => { driving.current = !driving.current; setInCar(driving.current); }}>
+          {inCar ? "Park and walk" : "Get in the car"}
+        </button>
+      )}
       {near && !sheet && (
         <button className="btn absolute bottom-28 left-1/2 z-20 -translate-x-1/2 shadow-lg" onClick={() => activate(near)}>
-          {near.kind === "enter" ? `Go in · ${near.label}` : near.kind === "exit" ? "Step outside" : near.label}
+          {near.homeId && sim.homes.includes(near.homeId) ? `Look inside · ${near.label}` : near.kind === "enter" ? `Go in · ${near.label}` : near.kind === "exit" ? "Step outside" : near.label}
         </button>
       )}
 
       {sheet && (
-        <div className="absolute inset-x-0 bottom-0 z-30 max-h-[72dvh] overflow-y-auto rounded-t-3xl border border-line bg-surface p-4 pb-28 shadow-2xl" role="dialog" aria-label={sheet.type === "home" ? sheet.spot.label : sheet.type === "place" ? sheet.title : "Map"}>
+        <div className="absolute inset-x-0 bottom-0 z-30 max-h-[72dvh] overflow-y-auto rounded-t-3xl border border-line bg-surface p-4 pb-28 shadow-2xl" role="dialog" aria-label={sheet.type === "home" ? sheet.spot.label : sheet.type === "place" ? sheet.title : sheet.type === "arrange" ? "Arrange your home" : sheet.type === "phone" ? "Phone" : sheet.type === "buy" ? "Buy" : "Map"}>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-2xl font-semibold">{sheet.type === "home" ? sheet.spot.label : sheet.type === "place" ? sheet.title : "Cedar Bay"}</h2>
+            <h2 className="font-display text-2xl font-semibold">{sheet.type === "home" ? sheet.spot.label : sheet.type === "place" ? sheet.title : sheet.type === "arrange" ? "Arrange your home" : sheet.type === "phone" ? "Phone" : sheet.type === "buy" ? "Buy" : "Cedar Bay"}</h2>
             <button className="btn ghost" onClick={() => setSheet(null)}>Close</button>
           </div>
           {sheet.type === "map" && (
+            <div className="grid gap-3">
+              <div className="flex gap-2">
+                <button type="button" className={`rounded-full px-3 py-1 text-sm ring-1 ${mapTab === "districts" ? "bg-ink text-bg ring-ink" : "bg-surface ring-line"}`} onClick={() => setMapTab("districts")}>Districts</button>
+                <button type="button" className={`rounded-full px-3 py-1 text-sm ring-1 ${mapTab === "cities" ? "bg-ink text-bg ring-ink" : "bg-surface ring-line"}`} onClick={() => setMapTab("cities")}>Cities</button>
+              </div>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={boardsOn} onChange={(e) => setBoardsOn(e.target.checked)} /> Street boards</label>
+              {mapTab === "districts" ? (
+                <ul className="grid gap-2">
+                  {townSpots.map((s) => (
+                    <li key={s.id}>
+                      <button className="act" onClick={() => travelTo(s, false)}><span aria-hidden>🚶</span><span><b>{s.label}</b><small>Walk there. You can change your mind on the way.</small></span></button>
+                      {ownedCar && <button className="act mt-1" onClick={() => travelTo(s, true)}><span aria-hidden>🚗</span><span><b>Driver · {s.label}</b><small>Your car, along the street. Park when you arrive.</small></span></button>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ul className="grid gap-2">
+                  <li className="text-sm text-muted">Flights leave from the airport. Game money only, and you come home the same day.</li>
+                  {REGIONS.map((r) => (
+                    <li key={r.id}><p className="rounded-2xl bg-surface-2 px-3 py-2 text-sm"><b>{r.name}</b></p></li>
+                  ))}
+                  <li><button className="btn" onClick={() => { const spot = TOWN.spots.find((s) => s.id === "travel"); if (spot) travelTo(spot, ownedCar); }}>Go to the airport</button></li>
+                </ul>
+              )}
+            </div>
+          )}
+          {sheet.type === "buy" && (
             <ul className="grid gap-2">
-              {townSpots.map((s) => (
-                <li key={s.id}><button className="act" onClick={() => walkTo(s)}><span aria-hidden>🚶</span><span><b>{s.label}</b><small>Walk there. You can change your mind on the way.</small></span></button></li>
+              <li className="text-sm text-muted">Shops keep the same prices. Saving up is fine.</li>
+              {townSpots.filter((s) => s.placeId && ["grocery", "plants", "homestore", "hobby", "clothes", "lot", "club"].includes(s.placeId)).map((s) => (
+                <li key={s.id}><button className="act" onClick={() => travelTo(s, false)}><span aria-hidden>🚶</span><span><b>{s.label}</b><small>Walk over when you feel like it.</small></span></button></li>
               ))}
             </ul>
           )}
-          {sheet.type === "place" && <PlaceBody placeId={sheet.placeId} onlyJob={sheet.jobId} sim={sim} region={region} />}
+          {sheet.type === "phone" && (
+            <div className="grid gap-3">
+              <p className="text-sm text-muted">Preset notes only. There is no open chat box.</p>
+              <div className="flex flex-wrap gap-2">
+                {EMOTES.map((e) => (
+                  <button key={e.id} className="rounded-full bg-surface-2 px-3 py-2 text-sm ring-1 ring-line" aria-pressed={emote === e.id} onClick={() => setEmote(e.id)}>{e.emoji} {e.label}</button>
+                ))}
+              </div>
+              <ul className="grid gap-2">
+                {KIND_PRESETS.map((preset) => (
+                  <li key={preset.id}>
+                    <button className="act" onClick={() => { setPeople(true); setRes({ sim, ok: true, message: `${preset.emoji} You can send “${preset.text}” from People. Nothing is typed in the open.` }); }}>
+                      <span aria-hidden>{preset.emoji}</span>
+                      <span><b>{preset.label}</b><small>{preset.text}</small></span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {sheet.type === "place" && <PlaceBody placeId={sheet.placeId} onlyJob={sheet.jobId} homeId={sheet.homeId} sim={sim} region={region} onEnterHome={(id) => { run((s) => moveHome(s, id)); jump("home", 8.5, 8.8); setSheet(null); }} />}
+          {sheet.type === "arrange" && (
+            <ul className="grid gap-2">
+              <li className="text-sm text-muted">Stand where you want it, then place it. Moving it later does not lose it. Each home keeps its own arrangement.</li>
+              {sim.inventory.map((id) => {
+                const item = itemById(id);
+                if (!item) return null;
+                const here = sim.placements.find((spot) => spot.itemId === id && spot.homeId === sim.homeId);
+                return (
+                  <li key={id}>
+                    <button className="act" onClick={() => { const r = run((s) => placeItem(s, id, pos.current.x, pos.current.y)); if (r) setRes(r); }}>
+                      <span aria-hidden>{item.icon}</span>
+                      <span><b>{item.name}</b><small>{here ? `In this home at ${here.x}, ${here.y}. Place again to move it.` : "Not placed in this home yet."}</small></span>
+                    </button>
+                  </li>
+                );
+              })}
+              {sim.inventory.length === 0 && <li>Nothing to place yet. The home store keeps the same prices.</li>}
+            </ul>
+          )}
           {sheet.type === "home" && (
             <div>
               <ResultNote r={homeNote} />
@@ -411,6 +560,27 @@ export function LifeGame() {
         ))}
       </div>
 
+      {mapId === "town" && !sheet && (
+        <div className="absolute bottom-28 left-28 right-3 z-20 flex gap-2 overflow-x-auto pb-1">
+          {nearby.map(({ spot, metres }) => (
+            <button key={spot.id} className="shrink-0 rounded-2xl bg-surface px-3 py-2 text-left text-sm shadow ring-1 ring-line" onClick={() => travelTo(spot, false)}>
+              <b className="block">{spot.label}</b>
+              <span className="text-xs text-muted">about {metres} m</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <nav className="absolute bottom-4 right-3 z-20 flex gap-1 rounded-full bg-surface/95 p-1 shadow-lg ring-1 ring-line" aria-label="Town">
+        <button className="rounded-full px-3 py-2 text-sm font-semibold" onClick={() => { driving.current = false; setInCar(false); jump("home", 8.5, 8.8); }}>Home</button>
+        <button className="rounded-full px-3 py-2 text-sm font-semibold" onClick={() => setSheet({ type: "buy" })}>Buy</button>
+        <button className="rounded-full px-3 py-2 text-sm font-semibold" onClick={() => setSheet({ type: "map" })}>Map</button>
+        <button className="rounded-full px-3 py-2 text-sm font-semibold" onClick={() => { setPhoneSeen(others.length); setSheet({ type: "phone" }); }}>Phone{phoneBadge > 0 ? ` ${phoneBadge}` : ""}</button>
+      </nav>
+      {hop && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#142033]/75 text-white">
+          <p className="font-display text-3xl">{hop}</p>
+        </div>
+      )}
       {sleeping && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#142033]/80 text-white">
           <p className="font-display text-4xl">Good night</p>
@@ -454,11 +624,46 @@ function townSigns(slots: { id: string; x: number; y: number }[], ads: ApprovedA
   }));
 }
 
+function pace(world: { w: number; ground: Uint8Array }, x: number, y: number, drivingNow: boolean, speed = 2) {
+  if (!drivingNow) return 3.15;
+  const tx = Math.floor(x);
+  const ty = Math.floor(y);
+  const onRoad = tx >= 0 && ty >= 0 && world.ground[ty * world.w + tx] === GROUND.path;
+  return onRoad ? 5.4 + speed * 1.2 : 4.2;
+}
+
+function streetName(mapId: string, y: number) {
+  if (mapId === "home") return "Your home";
+  if (mapId !== "town") return "Indoors";
+  if (y >= 24) return "South street";
+  if (y >= 14 && y <= 19) return "Main street";
+  if (y < 8) return "Lakeside path";
+  return "Cedar lane";
+}
+
+function httpsLink(contact: string) {
+  if (!contact.startsWith("https://")) return null;
+  try {
+    const url = new URL(contact);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function avatarOf(value: unknown) {
   if (!value || typeof value !== "object") return DEFAULT_AVATAR;
   const o = value as Record<string, unknown>;
   const n = (v: unknown, d: number, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : d);
   return { skin: n(o.skin, 1, 5), hair: n(o.hair, 1, 5), style: n(o.style, 0, 3), shirt: n(o.shirt, 1, 5) };
+}
+
+function PromoBanner({ ad }: { ad: ApprovedAd }) {
+  const href = httpsLink(ad.contact);
+  const label = `${ad.kind === "song" ? "Now playing" : "In town"} · ${ad.businessName} — ${ad.line}`;
+  const className = "pointer-events-auto mb-2 block rounded-2xl bg-[#1a1030] px-3 py-2 text-sm text-[#f7e7ff] shadow";
+  if (!href) return <p className={className}>{label}</p>;
+  return <a className={className} href={href} target="_blank" rel="noreferrer">{label}</a>;
 }
 
 function Joystick({ onChange }: { onChange: (x: number, y: number) => void }) {

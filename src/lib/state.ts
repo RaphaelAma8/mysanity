@@ -1,5 +1,6 @@
 import { newSim } from "./sim/engine";
-import { BLOCKS_PER_DAY, NEED_KEYS, type Avatar, type Moment, type Needs, type Sim } from "./sim/types";
+import { FRIENDS, businessById, carById, homeById } from "./sim/data";
+import { BLOCKS_PER_DAY, NEED_KEYS, type Avatar, type BusinessBoard, type Moment, type Needs, type Placement, type Sim } from "./sim/types";
 
 /**
  * The journal and mood check-ins live only on this device. They are never included in a cloud save.
@@ -82,6 +83,41 @@ export function sanitizeSim(p: unknown): Sim | null {
     moments, lastBillDay: num(p.lastBillDay, 0), avatar: sanitizeAvatar(p.avatar), travelled: strArr(p.travelled),
     petFedToday: p.petFedToday === true, supportedByCommunity: num(p.supportedByCommunity, 0),
     littleWins: strArr(p.littleWins).map((id) => id.slice(0, 24)).slice(0, 8),
+    ...ownedLife(p),
+  };
+}
+
+function ownedLife(p: Record<string, unknown>): Pick<Sim, "cars" | "carId" | "visitor" | "homeId" | "homes" | "placements" | "businesses" | "businessBoard"> {
+  const homes = strArr(p.homes).map((id) => id.slice(0, 24)).filter((id) => homeById(id));
+  if (!homes.includes("cottage")) homes.unshift("cottage");
+  const requested = typeof p.homeId === "string" ? p.homeId : "cottage";
+  const placements: Placement[] = Array.isArray(p.placements)
+    ? p.placements.filter(isObj).slice(0, 80).map((spot) => ({
+      homeId: typeof spot.homeId === "string" ? spot.homeId.slice(0, 24) : "cottage",
+      itemId: typeof spot.itemId === "string" ? spot.itemId.slice(0, 40) : "",
+      x: num(spot.x, 1, 0, 40),
+      y: num(spot.y, 1, 0, 40),
+    })).filter((spot) => spot.itemId && homes.includes(spot.homeId))
+    : [];
+  const businesses = strArr(p.businesses).filter((id) => businessById(id)).slice(0, 6);
+  let businessBoard: BusinessBoard | null = null;
+  if (isObj(p.businessBoard) && typeof p.businessBoard.name === "string" && typeof p.businessBoard.line === "string") {
+    businessBoard = { name: p.businessBoard.name.slice(0, 32), line: p.businessBoard.line.slice(0, 80) };
+  }
+  const cars = strArr(p.cars).filter((id) => carById(id)).slice(0, 6);
+  if (p.car === true && !cars.includes("hatch")) cars.unshift("hatch");
+  const requestedCar = typeof p.carId === "string" ? p.carId : cars[0] ?? null;
+  const names = new Set(FRIENDS.map((friend) => friend.name).concat("Maya"));
+  const visitor = typeof p.visitor === "string" && names.has(p.visitor) ? p.visitor : null;
+  return {
+    cars,
+    carId: requestedCar && cars.includes(requestedCar) ? requestedCar : cars[0] ?? null,
+    visitor,
+    homeId: homes.includes(requested) ? requested : "cottage",
+    homes,
+    placements,
+    businesses,
+    businessBoard,
   };
 }
 

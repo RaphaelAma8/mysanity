@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { FRIENDS, HOME_ACTIONS, ITEMS, JOBS, START_MONEY, WEEKLY_BILLS } from "../src/lib/sim/data";
+import { CARS, DRINKS, FRIENDS, HOME_ACTIONS, ITEMS, JOBS, START_MONEY, WEEKLY_BILLS } from "../src/lib/sim/data";
 import {
-  adoptCat, availability, buy, buyGroceries, buyPetFood, centreChat, centreMeal, cozyScore, feedPet, finishExercise, moodOf, newSim,
-  parkWalk, perform, sleep, travel, visit, weatherFor, work,
+  adoptCat, availability, buy, buyCar, buyGroceries, buyPetFood, centreChat, centreMeal, cozyScore, entertain, feedPet, finishExercise, moodOf, newSim,
+  orderDrink, parkWalk, perform, sleep, travel, visit, weatherFor, work,
 } from "../src/lib/sim/engine";
 import { BLOCKS_PER_DAY, MAX_SHIFTS_PER_DAY, NEED_KEYS, type Sim } from "../src/lib/sim/types";
 import { LEGACY_STORAGE_KEY, STORAGE_KEY, DEFAULT_AVATAR, clearAllData, loadState, sanitizeSim, saveState, type KV } from "../src/lib/state";
@@ -360,6 +360,44 @@ describe("saved games", () => {
       expect(s.inventory.every((x) => typeof x === "string")).toBe(true);
       expect(s.pet === null || typeof s.pet.name === "string").toBe(true);
     }
+  });
+});
+
+describe("cars, the club menu, and a private visitor", () => {
+  it("sells cars at a fixed price and never takes one back", () => {
+    let s = fresh({ money: 200 });
+    s = ok(buyCar(s, "hatch")).sim;
+    expect(s.cars).toContain("hatch");
+    expect(s.money).toBe(200 - CARS[0].price);
+    const broke = buyCar({ ...s, money: 0 }, "wagon");
+    expect(broke.ok).toBe(false);
+    expect(broke.sim.cars).toEqual(["hatch"]);
+    expect(broke.sim.money).toBe(0);
+    const after = sleep({ ...s, money: 10, day: 6 }).sim;
+    expect(after.cars).toContain("hatch");
+    expect(after.money).toBe(10);
+  });
+
+  it("serves mocktails that cost game money and never mentions alcohol", () => {
+    const blob = DRINKS.map((drink) => `${drink.name} ${drink.blurb}`).join(" ");
+    expect(blob.toLowerCase()).not.toMatch(/\b(alcohol|wine|beer|vodka|whisky|cocktail|hurry)\b|limited time/);
+    for (const drink of DRINKS) expect(drink.price).toBeGreaterThan(0);
+    const s = fresh({ money: 20, visitedToday: ["club"] });
+    const bought = ok(orderDrink(s, "spruce"));
+    expect(bought.sim.money).toBe(14);
+    expect(bought.sim.needs.fun).toBeGreaterThan(s.needs.fun);
+    const none = orderDrink({ ...s, money: 0 }, "chips");
+    expect(none.ok).toBe(false);
+    expect(none.sim.money).toBe(0);
+  });
+
+  it("invites a friend inside and leaves other players outside", () => {
+    const s = ok(entertain(fresh())).sim;
+    expect(s.visitor).toBe("Maya");
+    expect(s.homes).toContain("cottage");
+    const again = entertain(s);
+    expect(again.sim.visitor).toBe("Maya");
+    expect(again.message.toLowerCase()).toMatch(/private|outside/);
   });
 });
 
