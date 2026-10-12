@@ -151,6 +151,7 @@ function buildRoom(opts: {
   placeId?: string;
   jobId?: string;
   clerk?: Npc;
+  crowd?: Npc[];
   exit: { x: number; y: number };
 }): WorldMap {
   const m = create(opts.id, opts.name, 12, 10, GROUND.plank);
@@ -159,6 +160,7 @@ function buildRoom(opts: {
   fillRect(m, 3, 2, 6, 1, GROUND.stone, true);
   m.props.push({ kind: "counter", x: 3, y: 2 }, { kind: "door", x: 6, y: 9 });
   if (opts.clerk) m.npcs.push(opts.clerk);
+  if (opts.crowd) m.npcs.push(...opts.crowd);
   m.spots.push({
     id: opts.placeId ?? opts.jobId ?? opts.id,
     x: 5,
@@ -314,6 +316,8 @@ function buildTown(): WorldMap {
   m.npcs.push(
     { id: "renee", name: "Renée", x: 8.4, y: 16.7, skin: 2, hair: 4, style: 1, shirt: 0, line: "The lake is looking kind today. No rush if you just want to stand here." },
     { id: "omar", name: "Omar", x: 26.4, y: 17.6, skin: 4, hair: 0, style: 0, shirt: 1, line: "I like this street in the evening. The windows go warm, and you can take your time." },
+    { id: "lina", name: "Lina", x: 14.2, y: 16.4, skin: 0, hair: 3, style: 1, shirt: 2 },
+    { id: "theo", name: "Theo", x: 31.5, y: 17.2, skin: 5, hair: 1, style: 0, shirt: 4 },
   );
   m.spots.push(
     { id: "renee", x: 8, y: 16, label: "Renée", aria: "Renée: say hello", kind: "flavor", line: m.npcs[0].line },
@@ -372,17 +376,32 @@ const clerks: Record<string, Npc> = {
   gym: { id: "clerk-gym", name: "Sasha", x: 5.5, y: 1.7, skin: 3, hair: 1, style: 0, shirt: 4, line: "A little movement is enough. You can stop whenever you like." },
 };
 
+const shoppers: Record<string, Npc[]> = {
+  grocery: [
+    { id: "cam", name: "Cam", x: 3.2, y: 6.2, skin: 1, hair: 2, style: 0, shirt: 4 },
+    { id: "imani", name: "Imani", x: 8.4, y: 5.4, skin: 4, hair: 5, style: 3, shirt: 0 },
+  ],
+  club: [
+    { id: "leo", name: "Leo", x: 3.4, y: 6.5, skin: 2, hair: 0, style: 0, shirt: 5 },
+    { id: "nyla", name: "Nyla", x: 8.2, y: 6.8, skin: 0, hair: 3, style: 1, shirt: 2 },
+  ],
+  cafe: [
+    { id: "eden", name: "Eden", x: 3.6, y: 6.4, skin: 5, hair: 1, style: 2, shirt: 3 },
+    { id: "bo", name: "Bo", x: 8.6, y: 5.8, skin: 1, hair: 4, style: 0, shirt: 1 },
+  ],
+};
+
 const rooms: WorldMap[] = [
-  buildRoom({ id: "grocery", name: "Grocery store", placeId: "grocery", clerk: clerks.grocery, exit: exitFor("grocery") }),
+  buildRoom({ id: "grocery", name: "Grocery store", placeId: "grocery", clerk: clerks.grocery, crowd: shoppers.grocery, exit: exitFor("grocery") }),
   buildRoom({ id: "plants", name: "Plant shop", placeId: "plants", clerk: clerks.plants, exit: exitFor("plants") }),
   buildRoom({ id: "homestore", name: "Home store", placeId: "homestore", clerk: clerks.homestore, exit: exitFor("homestore") }),
   buildRoom({ id: "hobby", name: "Hobby shop", placeId: "hobby", clerk: clerks.hobby, exit: exitFor("hobby") }),
   buildRoom({ id: "clothes", name: "Clothing store", placeId: "clothes", clerk: clerks.clothes, exit: exitFor("clothes") }),
-  buildRoom({ id: "cafe", name: "The Kettle", placeId: "work", jobId: "cafe", clerk: clerks.cafe, exit: exitFor("cafe") }),
+  buildRoom({ id: "cafe", name: "The Kettle", placeId: "work", jobId: "cafe", clerk: clerks.cafe, crowd: shoppers.cafe, exit: exitFor("cafe") }),
   buildRoom({ id: "library", name: "Public library", placeId: "work", jobId: "library", clerk: clerks.library, exit: exitFor("library") }),
   buildRoom({ id: "centre", name: "Community centre", placeId: "centre", clerk: clerks.centre, exit: exitFor("centre") }),
   buildRoom({ id: "shelter", name: "Animal shelter", placeId: "shelter", clerk: clerks.shelter, exit: exitFor("shelter") }),
-  buildRoom({ id: "club", name: "Lakeside club", placeId: "club", clerk: clerks.club, exit: exitFor("club") }),
+  buildRoom({ id: "club", name: "Lakeside club", placeId: "club", clerk: clerks.club, crowd: shoppers.club, exit: exitFor("club") }),
   buildRoom({ id: "bank", name: "Credit union", placeId: "bank", clerk: clerks.bank, exit: exitFor("bank") }),
   buildRoom({ id: "farm", name: "Bay farm", placeId: "farm", clerk: clerks.farm, exit: exitFor("farm") }),
   buildRoom({ id: "gym", name: "The gym", placeId: "gym", clerk: clerks.gym, exit: exitFor("gym") }),

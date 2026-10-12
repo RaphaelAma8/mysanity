@@ -15,9 +15,10 @@ import { isRough } from "@/lib/sim/look";
 import { BLOCKS_PER_DAY, LITTLE_WINS, NEED_META, type NeedKey, type Result } from "@/lib/sim/types";
 import { assignBoards, type ApprovedAd } from "@/lib/ads/moderate";
 import { EMOTES } from "@/lib/social/presets";
-import { drawWorld, type Actor } from "@/lib/world/draw";
-import { HOME, PUBLIC_MAPS, TILE_PX, TOWN, mapById, type Spot } from "@/lib/world/maps";
-import { cameraFor, findPath, nearestSpot, tryMove } from "@/lib/world/move";
+import type { Actor } from "@/lib/world/draw";
+import { HOME, PUBLIC_MAPS, TOWN, mapById, type Spot } from "@/lib/world/maps";
+import { findPath, nearestSpot, tryMove } from "@/lib/world/move";
+import type { TownView } from "@/lib/world/view3d";
 import { DEFAULT_AVATAR } from "@/lib/state";
 
 type Sheet =
@@ -48,8 +49,12 @@ export function LifeGame() {
   const joy = useRef({ x: 0, y: 0 });
   const facing = useRef<1 | -1>(1);
   const moving = useRef(false);
-  const cam = useRef({ x: 0, y: 0 });
   const nearId = useRef<string | null>(null);
+  const viewRef = useRef<TownView | null>(null);
+  const live = useRef({ sim, others: [] as Actor[], ads: [] as ApprovedAd[], emote: null as string | null, helpOpen, mapId: "home", region, nickname: state.nickname });
+  useEffect(() => {
+    live.current = { sim, others, ads, emote, helpOpen, mapId, region, nickname: state.nickname };
+  });
   const sheetRef = useRef<Sheet>(null);
   const activateRef = useRef<(spot: Spot) => void>(() => {});
   const [mapId, setMapId] = useState("home");
@@ -87,75 +92,92 @@ export function LifeGame() {
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [mapId]);
 
+  const playing = !!sim;
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !sim) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!canvas || !playing) return;
+    let disposed = false;
+    let view: TownView | null = null;
     let raf = 0;
     let last = performance.now();
-    const loop = (now: number) => {
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-      const world = mapById(mapId);
-      const quiet = document.documentElement.classList.contains("quiet");
-      let ix = 0;
-      let iy = 0;
-      if (keys.current.has("arrowleft") || keys.current.has("a")) ix -= 1;
-      if (keys.current.has("arrowright") || keys.current.has("d")) ix += 1;
-      if (keys.current.has("arrowup") || keys.current.has("w")) iy -= 1;
-      if (keys.current.has("arrowdown") || keys.current.has("s")) iy += 1;
-      if (Math.hypot(joy.current.x, joy.current.y) > 0.2) { ix = joy.current.x; iy = joy.current.y; }
-      const pushing = Math.hypot(ix, iy) > 0.12;
-      if (pushing) {
-        path.current = null;
-        const len = Math.hypot(ix, iy) || 1;
-        const step = 3.15 * dt;
-        pos.current = tryMove(world, pos.current.x, pos.current.y, (ix / len) * step, (iy / len) * step);
-        if (Math.abs(ix) > 0.2) facing.current = ix < 0 ? -1 : 1;
-      } else if (path.current && path.current.length > 0) {
-        const target = path.current[0];
-        const tx = target.x + 0.5;
-        const ty = target.y + 0.5;
-        const dx = tx - pos.current.x;
-        const dy = ty - pos.current.y;
-        const dist = Math.hypot(dx, dy);
-        const step = 3.15 * dt;
-        if (dist <= step) {
-          pos.current = { x: tx, y: ty };
-          path.current.shift();
-        } else {
-          pos.current = tryMove(world, pos.current.x, pos.current.y, (dx / dist) * step, (dy / dist) * step);
-          if (Math.abs(dx) > 0.05) facing.current = dx < 0 ? -1 : 1;
+    void import("@/lib/world/view3d").then(({ createTownView }) => {
+      if (disposed || !canvas.isConnected) return;
+      view = createTownView(canvas);
+      viewRef.current = view;
+      const loop = (now: number) => {
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        const liveNow = live.current;
+        const current = liveNow.sim;
+        if (!current) {
+          raf = requestAnimationFrame(loop);
+          return;
         }
-      }
-      moving.current = pushing || (path.current?.length ?? 0) > 0;
-      const spot = nearestSpot(world.spots, pos.current.x, pos.current.y, 0.95);
-      const id = spot?.id ?? null;
-      if (id !== nearId.current) { nearId.current = id; setNear(spot); }
-
-      const rect = canvas.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.max(1, rect.width);
-      const h = Math.max(1, rect.height);
-      if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
-        canvas.width = Math.floor(w * dpr);
-        canvas.height = Math.floor(h * dpr);
-      }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      cam.current = cameraFor(world.w * TILE_PX, world.h * TILE_PX, pos.current.x * TILE_PX, pos.current.y * TILE_PX, w, h);
-      const font = getComputedStyle(document.body).fontFamily || "sans-serif";
-      drawWorld(ctx, {
-        map: world, cam: cam.current, viewW: w, viewH: h,
-        player: { ...pos.current, avatar: sim.avatar, facing: facing.current, moving: moving.current && !quiet, emote: EMOTES.find((item) => item.id === emote)?.emoji ?? null, self: true, name: state.nickname || undefined },
-        others: glideOthers(shown.current, others, dt, quiet), sim, weather: weatherFor(sim, region), time: now / 1000, quiet, font,
-        signs: helpOpen || mapId !== "town" ? [] : townSigns(TOWN.billboards, ads),
-      });
+        const world = mapById(liveNow.mapId);
+        const quiet = document.documentElement.classList.contains("quiet");
+        let ix = 0;
+        let iy = 0;
+        if (keys.current.has("arrowleft") || keys.current.has("a")) ix -= 1;
+        if (keys.current.has("arrowright") || keys.current.has("d")) ix += 1;
+        if (keys.current.has("arrowup") || keys.current.has("w")) iy -= 1;
+        if (keys.current.has("arrowdown") || keys.current.has("s")) iy += 1;
+        if (Math.hypot(joy.current.x, joy.current.y) > 0.2) { ix = joy.current.x; iy = joy.current.y; }
+        const pushing = Math.hypot(ix, iy) > 0.12;
+        if (pushing) {
+          path.current = null;
+          const len = Math.hypot(ix, iy) || 1;
+          const step = 3.15 * dt;
+          pos.current = tryMove(world, pos.current.x, pos.current.y, (ix / len) * step, (iy / len) * step);
+          if (Math.abs(ix) > 0.2) facing.current = ix < 0 ? -1 : 1;
+        } else if (path.current && path.current.length > 0) {
+          const target = path.current[0];
+          const tx = target.x + 0.5;
+          const ty = target.y + 0.5;
+          const dx = tx - pos.current.x;
+          const dy = ty - pos.current.y;
+          const dist = Math.hypot(dx, dy);
+          const step = 3.15 * dt;
+          if (dist <= step) {
+            pos.current = { x: tx, y: ty };
+            path.current.shift();
+          } else {
+            pos.current = tryMove(world, pos.current.x, pos.current.y, (dx / dist) * step, (dy / dist) * step);
+            if (Math.abs(dx) > 0.05) facing.current = dx < 0 ? -1 : 1;
+          }
+        }
+        moving.current = pushing || (path.current?.length ?? 0) > 0;
+        const spot = nearestSpot(world.spots, pos.current.x, pos.current.y, 0.95);
+        const id = spot?.id ?? null;
+        if (id !== nearId.current) { nearId.current = id; setNear(spot); }
+        view?.frame({
+          map: world,
+          player: {
+            ...pos.current,
+            avatar: current.avatar,
+            facing: facing.current,
+            moving: moving.current && !quiet,
+            emote: EMOTES.find((item) => item.id === liveNow.emote)?.emoji ?? null,
+            self: true,
+            name: liveNow.nickname || undefined,
+          },
+          others: glideOthers(shown.current, liveNow.others, dt, quiet),
+          sim: current,
+          signs: liveNow.helpOpen || liveNow.mapId !== "town" ? [] : townSigns(TOWN.billboards, liveNow.ads),
+          quiet,
+          time: now / 1000,
+          weather: weatherFor(current, liveNow.region),
+        });
+        raf = requestAnimationFrame(loop);
+      };
       raf = requestAnimationFrame(loop);
+    });
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      view?.dispose();
+      viewRef.current = null;
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, [mapId, sim, region, emote, others, state.nickname, helpOpen, ads]);
+  }, [playing]);
 
   useEffect(() => {
     let stop = false;
@@ -265,9 +287,9 @@ export function LifeGame() {
   function onCanvasDown(e: React.PointerEvent<HTMLCanvasElement>) {
     if (sheetRef.current || e.button !== 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const wx = (e.clientX - rect.left + cam.current.x) / TILE_PX;
-    const wy = (e.clientY - rect.top + cam.current.y) / TILE_PX;
-    path.current = findPath(map, pos.current.x, pos.current.y, wx, wy);
+    const hit = viewRef.current?.groundAt(e.clientX, e.clientY, rect);
+    if (!hit) return;
+    path.current = findPath(map, pos.current.x, pos.current.y, hit.x, hit.y);
   }
 
   async function goToBed() {
@@ -426,8 +448,8 @@ function townSigns(slots: { id: string; x: number; y: number }[], ads: ApprovedA
   return assignBoards(slots, ads).map((board) => ({
     x: board.x,
     y: board.y,
-    name: board.ad?.businessName ?? "Open board",
-    line: board.ad?.line ?? "Your business",
+    name: board.ad?.businessName ?? "Your business",
+    line: board.ad?.line ?? "This street board is open",
     accent: board.ad?.accent ?? "#8a6a3a",
   }));
 }

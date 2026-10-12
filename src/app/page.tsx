@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useHaven } from "@/components/HavenProvider";
 import { PLACES } from "@/lib/sim/data";
 import type { ApprovedAd } from "@/lib/ads/moderate";
+import { paintCreative } from "@/lib/world/adpaint";
 
 const OPEN_BOARDS = [
   { businessName: "Your shop", line: "This board is open", accent: "#1f6b4a" },
@@ -74,8 +75,8 @@ export default function Welcome() {
           <section id="boards" aria-label="Business boards" className="relative z-10 px-4 pb-10">
             <div className="mx-auto flex max-w-5xl gap-3 overflow-x-auto pb-2">
               {boards.map((ad) => (
-                <article key={ad.key} className="w-64 shrink-0 overflow-hidden rounded-2xl bg-[#fffdf8] text-ink shadow-xl">
-                  <div className="h-16" style={{ background: `linear-gradient(135deg, ${ad.accent}, #142433)` }} />
+                <article key={ad.key} className="w-72 shrink-0 overflow-hidden rounded-2xl bg-[#fffdf8] text-ink shadow-xl">
+                  <BoardArt kind={boards.indexOf(ad)} accent={ad.accent} />
                   <div className="p-3">
                     <h2 className="font-display text-lg font-semibold leading-tight">{ad.businessName}</h2>
                     <p className="text-sm text-muted">{ad.line}</p>
@@ -173,6 +174,17 @@ function Advertise() {
       </form>
     </section>
   );
+}
+
+function BoardArt({ kind, accent }: { kind: number; accent: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    paintCreative(ctx, canvas.width, canvas.height, kind, accent);
+  }, [kind, accent]);
+  return <canvas ref={ref} width={640} height={360} className="block h-40 w-full object-cover" aria-hidden />;
 }
 
 function Dusk() {

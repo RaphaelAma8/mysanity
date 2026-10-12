@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Figure } from "@/components/Figure";
+import { AvatarView } from "@/components/world/AvatarView";
 import { Loading } from "@/components/Parts";
 import { useHaven } from "@/components/HavenProvider";
 import { REGIONS } from "@/data/regions";
@@ -34,7 +34,7 @@ export default function Onboard() {
       <p className="mt-2 text-muted">This is who you&apos;ll look after in the game. You can make them look like you, or like anyone you like.</p>
 
       <div className="card mt-5 flex items-center gap-5">
-        <svg viewBox="-30 -100 60 110" width="110" height="180" aria-label="Your character" role="img"><Figure avatar={av} mood="good" /></svg>
+        <AvatarView avatar={av} />
         <div className="flex-1">
           {sw("skin", SKIN, "Skin")}{sw("hair", HAIR, "Hair")}
           <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Hairstyle">
