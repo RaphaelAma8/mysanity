@@ -560,7 +560,7 @@ export function LifeGame() {
         ))}
       </div>
 
-      {mapId === "town" && !sheet && (
+      {mapId === "town" && !sheet && !near && (
         <div className="absolute bottom-28 left-28 right-3 z-20 flex gap-2 overflow-x-auto pb-1">
           {nearby.map(({ spot, metres }) => (
             <button key={spot.id} className="shrink-0 rounded-2xl bg-surface px-3 py-2 text-left text-sm shadow ring-1 ring-line" onClick={() => travelTo(spot, false)}>

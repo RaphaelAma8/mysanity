@@ -405,6 +405,11 @@ export function createTownView(canvas: HTMLCanvasElement): TownView {
         camera.lookAt(map.w / 2, 0.7, map.h * 0.42);
         return;
       }
+      if (map.id === "club") {
+        camera.position.set(map.w / 2, 8.2, map.h + 0.4);
+        camera.lookAt(map.w / 2, 0.2, 5.4);
+        return;
+      }
       camera.position.set(map.w / 2, 6.5, map.h + 0.6);
       camera.lookAt(map.w / 2, 0.85, map.h * 0.32);
       return;

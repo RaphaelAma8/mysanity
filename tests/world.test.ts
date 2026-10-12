@@ -4,6 +4,30 @@ import { allMaps, boardsBesideRoads, GROUND, HOME, mapById, PUBLIC_MAPS, TOWN } 
 import { cameraFor, findPath, isWalkable, tileOf, tryMove } from "../src/lib/world/move";
 
 describe("Cedar Bay can be walked", () => {
+  it("can follow the path to the club without getting stuck", () => {
+    const found = findPath(TOWN, 4.5, 18.5, 12.5, 26.5);
+    expect(found).not.toBeNull();
+    const steps = found!;
+    let x = 4.5;
+    let y = 18.5;
+    let guard = 0;
+    while (steps.length && guard < 800) {
+      guard += 1;
+      const tx = steps[0].x + 0.5;
+      const ty = steps[0].y + 0.5;
+      const dx = tx - x;
+      const dy = ty - y;
+      const dist = Math.hypot(dx, dy);
+      const step = 3.15 * 0.016;
+      if (dist <= step) { x = tx; y = ty; steps.shift(); continue; }
+      const next = tryMove(TOWN, x, y, (dx / dist) * step, (dy / dist) * step);
+      expect(next, `stuck at ${x},${y} going to ${steps[0].x},${steps[0].y}`).not.toEqual({ x, y });
+      x = next.x;
+      y = next.y;
+    }
+    expect(Math.hypot(x - 12.5, y - 26.5)).toBeLessThan(1.2);
+  });
+
   it("reaches every door and spot from where you step outside", () => {
     for (const spot of TOWN.spots) {
       const path = findPath(TOWN, TOWN.spawn.x, TOWN.spawn.y, spot.x + 0.5, spot.y + 0.5);
