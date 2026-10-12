@@ -740,23 +740,24 @@ function carMesh(color: string) {
 function billboardMesh(map: WorldMap, sign: Sign, index: number) {
   const group = new THREE.Group();
   const face = roadFacing(map, sign.x, sign.y);
-  const board = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.4, 1.9),
-    new THREE.MeshStandardMaterial({
-      map: canvasTexture(paintBillboard(sign.name, sign.line, sign.accent, index % 6)),
-      roughness: 0.5,
-      side: THREE.DoubleSide,
-    }),
-  );
+  const yaw = face + (index % 2 === 0 ? 0.7 : -0.7);
+  const material = new THREE.MeshStandardMaterial({
+    map: canvasTexture(paintBillboard(sign.name, sign.line, sign.accent, index % 6)),
+    roughness: 0.5,
+  });
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.9), material);
   board.position.y = 1.9;
-  // Turn each board toward people walking the street, not only the shoulder.
-  board.rotation.y = face + (index % 2 === 0 ? 0.7 : -0.7);
+  board.rotation.y = yaw;
+  // A second front face so the copy reads correctly from the other side.
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.9), material);
+  back.position.y = 1.9;
+  back.rotation.y = yaw + Math.PI;
   const post = new THREE.Mesh(
     new THREE.CylinderGeometry(0.06, 0.07, 1.15, 8),
     new THREE.MeshStandardMaterial({ color: "#5c5348", roughness: 0.7, metalness: 0.2 }),
   );
   post.position.y = 0.58;
-  group.add(board, post);
+  group.add(board, back, post);
   group.position.set(sign.x + 0.5, 0, sign.y + 0.5);
   return group;
 }
